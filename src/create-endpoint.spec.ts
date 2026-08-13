@@ -69,7 +69,7 @@ describe('object adapter', async () => {
         > = {};
         type _ = Check<CONTRACT>;
         const result = await allInQuery({
-            'input-queryParams': { a: 111, b: 333 }
+            'input-queryParams': { a: '111', b: '333' }
         });
         test('has correct response', () =>
             expect(result['output-body']).toBe(444));
@@ -112,9 +112,8 @@ describe('object adapter', async () => {
         .withResponseSchemas((_inputSchema) => {
             return {
                 body: z.object({ sup: z.string() }),
-                cookies: z.string(),
-                headers: undefined
-            } as const;
+                cookies: z.string()
+            };
         })
         .mapped({
             outputToBody: (x) => ({ sup: x.toString() }),
