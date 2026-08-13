@@ -45,7 +45,7 @@ const sumNextPOSTEndpoint = createNextEndpoint(
 export const POST = sumNextPOSTEndpoint;
 
 /**
- * /sum
+ * POST /sum
  *
  * REQUEST BODY: { a: 10, b: 30 }
  * RESPONSE BODY: 40
@@ -72,7 +72,7 @@ const sumNextGETEndpoint = createNextEndpoint(sumHandler)
 
 export const GET = sumNextGETEndpoint;
 /**
- * /sum?firstNumber=15&secondNumber=40
+ * GET /sum?firstNumber=15&secondNumber=40
  *
  * RESPONSE BODY: 55
  */
@@ -102,7 +102,7 @@ const sumNextGETEWithModifiedBodyEndpoint = createNextEndpoint(
 
 export const GET = sumNextGETEWithModifiedBodyEndpoint;
 /**
- * /sum?a=100&b=400
+ * GET /sum?a=100&b=400
  *
  * RESPONSE BODY: { sum: 500 }
  */
