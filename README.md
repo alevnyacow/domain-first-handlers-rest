@@ -1,15 +1,26 @@
-# Installation
+<p align="center">
+    <picture>
+        <img src='https://raw.githubusercontent.com/alevnyacow/domain-first-handlers-rest/refs/heads/main/logo.svg?sanitize=true'>
+    </picture>
+</p>
 
-```bash
-npm i @domain-first/handlers # to make handlers
-npm i @domain-first/handlers-rest # to make REST endpoints
-```
+<p align="center">
+    Expose your Domain-First Handlers as REST endpoints.
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/npm/v/%40domain-first%2Fhandlers-rest" alt="version">
+  <img src="https://img.shields.io/badge/TypeScript-ready-3178C6?logo=typescript&logoColor=white?style=for-the-badge" alt="size">
+  <img src="https://img.shields.io/npm/l/%40domain-first%2Fhandlers-rest" alt="license">
+</p>
+
+# Requirements
+
+- `@domain-first/handlers` ^4.0.0
 
 # About
 
-Call your domain handlers via REST with fully type-safe request and response contracts.
-
-The API is intentionally small and fluent: describe transport → map to domain → describe response → map back. When the transport schema already matches the domain schema, unnecessary steps become optional — the happy path stays minimal. TypeScript checks the contract at compile time.
+API is intentionally small and fluent: describe transport → map to domain → describe response → map back. When the transport schema already matches the domain schema, unnecessary steps become optional — the happy path stays minimal. TypeScript checks the contract at compile time.
 
 # Examples
 
@@ -41,7 +52,7 @@ export const POST = sumNextPOSTEndpoint;
  */
 ```
 
-For custom transport representations, add only what you need:
+If schemas don't match, describe mappers via `mapped` field:
 
 ```ts
 // any standard schema compatible library fits
@@ -67,7 +78,7 @@ export const GET = sumNextGETEndpoint;
  */
 ```
 
-Simple cases stay simple. Complex cases stay type-safe. You can also modify response:
+You can also modify response:
 
 ```ts
 const sumNextGETEWithModifiedBodyEndpoint = createNextEndpoint(
