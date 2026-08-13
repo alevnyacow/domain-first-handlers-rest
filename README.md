@@ -20,9 +20,11 @@
 
 # About
 
-API is intentionally small and fluent: describe transport → map to domain → describe response → map back. When the transport schema already matches the domain schema, unnecessary steps become optional — the happy path stays minimal. TypeScript checks the contract at compile time.
+The API is intentionally small and fluent: describe transport → map to domain → describe response → map back. When the transport schema already matches the domain schema, mapping steps can be omitted, so the happy path stays minimal. TypeScript checks the contract at compile time.
 
 # Examples
+
+## Quick Start
 
 ```ts
 import { createEndpoint } from "@domain-first/handlers-rest";
@@ -81,7 +83,7 @@ export const GET = sumNextGETEndpoint;
 You can also modify response:
 
 ```ts
-const sumNextGETEWithModifiedBodyEndpoint = createNextEndpoint(
+const sumNextGETWithModifiedBodyEndpoint = createNextEndpoint(
     sumHandler,
 )
     .withRequestSchemas((inputSchema) => ({
@@ -91,19 +93,44 @@ const sumNextGETEWithModifiedBodyEndpoint = createNextEndpoint(
         a: +input.a,
         b: +input.b,
     }))
-    .withResponseSchemas((outputSchema) =>
-        z.object({
+    .withResponseSchemas((outputSchema) => ({
+        body: z.object({
             sum: outputSchema,
         }),
-    )
+    }))
     .mapped({
         outputToBody: (x) => ({ sum: x }),
     });
 
-export const GET = sumNextGETEWithModifiedBodyEndpoint;
+export const GET = sumNextGETWithModifiedBodyEndpoint;
 /**
  * GET /sum?a=100&b=400
  *
  * RESPONSE BODY: { sum: 500 }
+ */
+```
+
+## Endpoint contracts
+
+To obtain an endpoint contract, use `EndpointContract` generic:
+
+```ts
+import type { EndpointContract } from "@domain-first/handlers-rest";
+
+type SumGETWithModifiedBodyContract = EndpointContract<
+    typeof sumNextGETWithModifiedBodyEndpoint
+>;
+
+/**
+type SumGETWithModifiedBodyContract = {
+    request: {
+        query: Record<"a" | "b", string>;
+    };
+    response: {
+        body: {
+            sum: number;
+        };
+    };
+}
  */
 ```
