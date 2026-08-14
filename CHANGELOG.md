@@ -1,3 +1,10 @@
+## [1.0.3](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v1.0.2...v1.0.3) (2026-08-14)
+
+
+### Bug Fixes
+
+* link in readme for @domain-first/handlers ([66f7c01](https://github.com/alevnyacow/domain-first-handlers-rest/commit/66f7c0161584e9484431434acc445433e7310d50))
+
 ## [1.0.2](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v1.0.1...v1.0.2) (2026-08-13)
 
 
