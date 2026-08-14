@@ -16,7 +16,7 @@
 
 # Requirements
 
-- `@domain-first/handlers` ^4.0.0
+- [@domain-first/handlers](https://www.npmjs.com/package/@domain-first/handlers) (^4.0.0)
 
 # About
 
