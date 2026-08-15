@@ -22,6 +22,10 @@
 
 The API is intentionally small and fluent: describe transport → map to domain → describe response → map back. When the transport schema already matches the domain schema, mapping steps can be omitted, so the happy path stays minimal. TypeScript checks the contract at compile time.
 
+# Adapters
+
+- [Mock Adapter](https://www.npmjs.com/package/@domain-first/handlers-mock-rest-adapter)
+
 # Examples
 
 ## Quick Start
