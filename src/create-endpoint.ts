@@ -41,15 +41,21 @@ type OutputTransformers<
               ) => SafelyInferOutput<ResponseHeaders>;
           });
 
+const defaultErrorCodesMapping = (_e: unknown) => undefined;
+
 export const createEndpoint =
     <RESTRequest extends unknown[], RESTResponse>(
-        adapter: Adapter<RESTRequest, RESTResponse>
+        adapter: Adapter<RESTRequest, RESTResponse>,
+        errorCodesMapping: (e: unknown) => number | undefined = () => undefined
     ) =>
     <
         InputSchema extends StandardSchemaV1,
         OutputSchema extends StandardSchemaV1
     >(
-        handler: Handler<InputSchema, OutputSchema>
+        handler: Handler<InputSchema, OutputSchema>,
+        successStatusCode = 200,
+        handlerErrorCodesMapping: (e: unknown) => number | undefined = () =>
+            undefined
     ) => {
         const withContract = <
             RequestQuerySchema extends StandardSchemaV1 | undefined,
@@ -233,10 +239,16 @@ export const createEndpoint =
                     },
                     output: async (response, ...input) => {
                         if (!response.success) {
+                            const statusCode =
+                                handlerErrorCodesMapping(response.error) ??
+                                errorCodesMapping(response.error) ??
+                                defaultErrorCodesMapping(response.error) ??
+                                500;
                             return await adapter.output(
                                 {
                                     success: false,
-                                    error: response.error
+                                    error: response.error,
+                                    statusCode
                                 },
                                 ...input
                             );
@@ -310,7 +322,8 @@ export const createEndpoint =
                                 body: await getBodyPart(),
                                 cookies: await getCookiesPart(),
                                 headers: await getHeadersPart(),
-                                success: true
+                                success: true,
+                                statusCode: successStatusCode
                             },
                             ...input
                         );

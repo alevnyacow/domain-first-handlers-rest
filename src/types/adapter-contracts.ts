@@ -44,8 +44,9 @@ export type Adapter<RESTInput extends unknown[], RESTOutput> = {
                       | undefined;
                   headers: object | undefined;
                   cookies: object | undefined;
+                  statusCode: number;
               }
-            | { success: false; error: Error },
+            | { success: false; error: unknown; statusCode: number },
         ...input: RESTInput
     ) => RESTOutput | Promise<RESTOutput>;
 };
