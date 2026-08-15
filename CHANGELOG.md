@@ -1,3 +1,15 @@
+# [2.0.0](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v1.0.3...v2.0.0) (2026-08-15)
+
+
+### Features
+
+* added status code, `error` is of type unknown now ([5041635](https://github.com/alevnyacow/domain-first-handlers-rest/commit/5041635a23e4958ff5b50fe7f4497cd0c9faab4e))
+
+
+### BREAKING CHANGES
+
+* `error` is `unknown` instead of `Error`
+
 ## [1.0.3](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v1.0.2...v1.0.3) (2026-08-14)
 
 
