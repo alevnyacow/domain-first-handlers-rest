@@ -1,3 +1,10 @@
+## [2.0.1](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v2.0.0...v2.0.1) (2026-08-15)
+
+
+### Bug Fixes
+
+* **README:** added mock adapter in adapters list ([fb9ee5b](https://github.com/alevnyacow/domain-first-handlers-rest/commit/fb9ee5b4123c11698be5501880e35dc5ef1901d6))
+
 # [2.0.0](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v1.0.3...v2.0.0) (2026-08-15)
 
 
