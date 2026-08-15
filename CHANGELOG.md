@@ -1,3 +1,10 @@
+## [2.0.2](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v2.0.1...v2.0.2) (2026-08-15)
+
+
+### Bug Fixes
+
+* **README:** added semver badge ([bd00c72](https://github.com/alevnyacow/domain-first-handlers-rest/commit/bd00c724921ae3ab6fe537e5bc61995172d6c887))
+
 ## [2.0.1](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v2.0.0...v2.0.1) (2026-08-15)
 
 
