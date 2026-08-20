@@ -21,7 +21,7 @@
 
 # About
 
-The API is intentionally small and fluent: describe transport → map to domain → describe response → map back. Describing a response is an optional step - by default all response go to the body, so the happy path stays minimal. TypeScript checks the contract at compile time, and everything is strongly-typed.
+The API is intentionally small and fluent: describe transport → map to domain → describe response → map back. Describing a response is an optional step - by default all response go to the body, so the happy path stays minimal. TypeScript checks the contract at compile time. Everything is strongly-typed.
 
 # Adapters
 
