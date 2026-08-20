@@ -1,3 +1,15 @@
+# [3.0.0](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v2.1.0...v3.0.0) (2026-08-20)
+
+
+### Bug Fixes
+
+* README ([e7db7da](https://github.com/alevnyacow/domain-first-handlers-rest/commit/e7db7da1e62c297b54eec8717607fbfbf2c2722e))
+
+
+### BREAKING CHANGES
+
+* new api
+
 # [2.1.0](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v2.0.2...v2.1.0) (2026-08-20)
 
 
