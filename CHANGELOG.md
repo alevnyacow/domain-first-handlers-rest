@@ -1,3 +1,10 @@
+# [2.1.0](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v2.0.2...v2.1.0) (2026-08-20)
+
+
+### Features
+
+* new contracts, statuses, mapping, statuses ([88be6b3](https://github.com/alevnyacow/domain-first-handlers-rest/commit/88be6b34f1e44068744444904bbfa6c2e62351dd))
+
 ## [2.0.2](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v2.0.1...v2.0.2) (2026-08-15)
 
 
