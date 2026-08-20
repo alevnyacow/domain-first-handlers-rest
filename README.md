@@ -21,7 +21,7 @@
 
 # About
 
-The API is intentionally small and fluent: describe transport → map to domain → describe response → map back. When the transport schema already matches the domain schema, mapping steps can be omitted, so the happy path stays minimal. TypeScript checks the contract at compile time.
+The API is intentionally small and fluent: describe transport → map to domain → describe response → map back. Describing a response is an optional step - by default all response go to the body, so the happy path stays minimal. TypeScript checks the contract at compile time, and everything is strongly-typed.
 
 # Adapters
 
@@ -33,85 +33,51 @@ The API is intentionally small and fluent: describe transport → map to domain 
 
 ```ts
 import { createEndpoint } from "@domain-first/handlers-rest";
+import { defineHandler } from "@domain-first/handlers";
 /**
- * takes two numbers as { a: number, b: number }, returns a number
+ * Any adapter can be used.
  */
-import { sumHandler } from "./handlers/sum";
 import nextAdapter from "./adapters/next";
+/**
+ * Any Standard Schema compatible library fits.
+ */
+import z from "zod";
 
-const createNextEndpoint = createEndpoint(nextAdapter);
-
-const sumNextPOSTEndpoint = createNextEndpoint(
-    sumHandler,
-).withRequestSchemas((inputSchema) => {
-    return {
-        body: inputSchema,
-    };
+const sum = defineHandler({
+    inputSchema: z.object({
+        a: z.number(),
+        b: z.number(),
+    }),
+    outputSchema: z.number(),
+    handler: async ({ a, b }) => a + b,
 });
 
-export const POST = sumNextPOSTEndpoint;
+const nextEndpoint = createEndpoint(nextAdapter);
+
+const sumPOST = nextEndpoint(sum)
+    /**
+     * Describe input schemas.
+     */
+    .input((schema) => {
+        return {
+            body: schema,
+        };
+    })
+    /**
+     * Describe input mapping.
+     */
+    .mapInput((input) => ({
+        a: input.body.a,
+        b: input.body.b,
+    }));
+
+export const POST = sumPOST;
 
 /**
  * POST /sum
  *
  * REQUEST BODY: { a: 10, b: 30 }
  * RESPONSE BODY: 40
- */
-```
-
-If schemas don't match, describe mappers via `mapped` field:
-
-```ts
-// any standard schema compatible library fits
-import z from "zod";
-
-const sumNextGETEndpoint = createNextEndpoint(sumHandler)
-    .withRequestSchemas((x) => ({
-        query: z.object({
-            firstNumber: z.string(),
-            secondNumber: z.string(),
-        }),
-    }))
-    .mapped((input) => ({
-        a: +input.firstNumber,
-        b: +input.secondNumber,
-    }));
-
-export const GET = sumNextGETEndpoint;
-/**
- * GET /sum?firstNumber=15&secondNumber=40
- *
- * RESPONSE BODY: 55
- */
-```
-
-You can also modify response:
-
-```ts
-const sumNextGETWithModifiedBodyEndpoint = createNextEndpoint(
-    sumHandler,
-)
-    .withRequestSchemas((inputSchema) => ({
-        query: z.record(z.keyof(inputSchema), z.string()),
-    }))
-    .mapped((input) => ({
-        a: +input.a,
-        b: +input.b,
-    }))
-    .withResponseSchemas((outputSchema) => ({
-        body: z.object({
-            sum: outputSchema,
-        }),
-    }))
-    .mapped({
-        outputToBody: (x) => ({ sum: x }),
-    });
-
-export const GET = sumNextGETWithModifiedBodyEndpoint;
-/**
- * GET /sum?a=100&b=400
- *
- * RESPONSE BODY: { sum: 500 }
  */
 ```
 
@@ -122,20 +88,107 @@ To obtain an endpoint contract, use `EndpointContract` generic:
 ```ts
 import type { EndpointContract } from "@domain-first/handlers-rest";
 
-type SumGETWithModifiedBodyContract = EndpointContract<
-    typeof sumNextGETWithModifiedBodyEndpoint
->;
+type SumPOSTContract = EndpointContract<typeof sumPOST>;
 
 /**
-type SumGETWithModifiedBodyContract = {
+type SumPOSTContract = {
     request: {
-        query: Record<"a" | "b", string>;
+        body: { a: number; b: number; };
     };
     response: {
-        body: {
-            sum: number;
-        };
+        body: number;
     };
 }
  */
+```
+
+## Context and error handling
+
+```ts
+import {
+    type RawRequestModel,
+    createEndpoint,
+} from "@domain-first/handlers-rest";
+import { defineHandler } from "@domain-first/handlers";
+import z from "zod";
+import adapter from "./adapter";
+
+class UnathorizedAccessError extends Error {}
+
+/**
+ * Context logic.
+ */
+const authContext = async (rawRequest: RawRequestModel) => {
+    const bearerHeader = rawRequest.headers?.Authorization ?? "";
+
+    if (!bearerHeader) {
+        throw new UnathorizedAccessError();
+    }
+
+    const token = bearerHeader.split(" ").pop();
+
+    // some decoding logic
+    const { userId } = await decodeToken(token);
+
+    return { userId };
+};
+
+/**
+ * Adding context in endpoint generator.
+ */
+const nextEndpointWithAuth = createEndpoint(nextAdapter, {
+    context: async (rawRequest) => {
+        const auth = await authContext(rawRequest);
+
+        return { auth };
+    },
+    errorCodesMapping: (error: unknown) => {
+        if (error instanceof UnathorizedAccessError) {
+            return 401;
+        }
+    },
+});
+
+const greetUser = defineHandler({
+    input: z.object({ authorId: z.string(), name: z.string() }),
+    output: z.string(),
+    handler: async ({ authorId, name }) => {
+        return `Hello, ${name}! (from ${authorId})`;
+    },
+});
+
+const greetUserEndpoint = nextEndpointWithAuth(greetUser)
+    .input((inputSchema) => ({
+        query: inputSchema.pick({ name: true }),
+    }))
+    .mapInput((input) => {
+        return {
+            name: input.query.name,
+            // strongly-typed
+            authorId: input.context.auth.userId,
+        };
+    });
+```
+
+## Defining custom output
+
+```ts
+const sumPATCH = nextEndpoint(sum)
+    .input((schema) => ({
+        body: schema,
+    }))
+    .mapInput((input) => ({
+        a: input.body.a,
+        b: input.body.b,
+    }))
+    .output((schema) => ({
+        body: z.object({
+            result: schema,
+        }),
+    }))
+    .mapOutput((output) => ({
+        body: { result: output },
+    }));
+
+export const POST = sumPOST;
 ```

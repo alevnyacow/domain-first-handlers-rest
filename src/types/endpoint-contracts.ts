@@ -74,3 +74,11 @@ export type EndpointContract<T extends { _api_schemas: object }> = {
         InferResponseCookies<T> &
         InferResponseHeaders<T>;
 };
+
+export type RawRequestModel = {
+    query?: object;
+    body?: unknown;
+    cookies?: object;
+    formData?: object;
+    headers?: object;
+};

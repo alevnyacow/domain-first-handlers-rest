@@ -4,58 +4,76 @@ import type {
     Adapter,
     AdapterRequestSchemas,
     AdapterResponseSchemas,
-    CheckCompatibility
+    CheckCompatibility,
+    RawRequestModel
 } from './types';
+
+export type HttpMethod =
+    | 'GET'
+    | 'POST'
+    | 'PUT'
+    | 'PATCH'
+    | 'DELETE'
+    | 'HEAD'
+    | 'OPTIONS';
+
+type RemoveUnknownAndUndefined<T> = {
+    [K in keyof T as unknown extends T[K]
+        ? never
+        : undefined extends T[K]
+          ? never
+          : K]: T[K];
+};
 
 type SafelyInferOutput<T> = T extends StandardSchemaV1
     ? StandardSchemaV1.InferOutput<T>
-    : {};
+    : undefined;
 
 type SafelyInferInput<T> = T extends StandardSchemaV1
     ? StandardSchemaV1.InferInput<T>
-    : {};
+    : undefined;
 
 type OutputTransformers<
     OutputSchema extends StandardSchemaV1,
-    ResponseBody extends StandardSchemaV1 | undefined,
-    ResponseHeaders extends StandardSchemaV1 | undefined,
-    ResponseCookies extends StandardSchemaV1 | undefined
-> = {
-    outputToBody: ResponseBody extends undefined
-        ? undefined
-        : (
-              x: StandardSchemaV1.InferOutput<OutputSchema>
-          ) => SafelyInferOutput<ResponseBody>;
-} & (ResponseCookies extends undefined
-    ? {}
-    : {
-          outputToCookies: (
-              x: StandardSchemaV1.InferOutput<OutputSchema>
-          ) => SafelyInferOutput<ResponseCookies>;
-      }) &
-    (ResponseHeaders extends undefined
-        ? {}
-        : {
-              outputToHeaders: (
-                  x: StandardSchemaV1.InferOutput<OutputSchema>
-              ) => SafelyInferOutput<ResponseHeaders>;
-          });
+    ResponseBody extends StandardSchemaV1 | undefined = undefined,
+    ResponseHeaders extends StandardSchemaV1 | undefined = undefined,
+    ResponseCookies extends StandardSchemaV1 | undefined = undefined
+> = (handlerResponse: StandardSchemaV1.InferOutput<OutputSchema>) =>
+    | RemoveUnknownAndUndefined<{
+          body: SafelyInferOutput<ResponseBody>;
+          cookies: SafelyInferOutput<ResponseCookies>;
+          headers: SafelyInferOutput<ResponseHeaders>;
+      }>
+    | Promise<{
+          body: SafelyInferOutput<ResponseBody>;
+          cookies: SafelyInferOutput<ResponseCookies>;
+          headers: SafelyInferOutput<ResponseHeaders>;
+      }>;
 
 const defaultErrorCodesMapping = (_e: unknown) => undefined;
 
 export const createEndpoint =
-    <RESTRequest extends unknown[], RESTResponse>(
+    <RESTRequest extends unknown[], RESTResponse, Context = undefined>(
         adapter: Adapter<RESTRequest, RESTResponse>,
-        errorCodesMapping: (e: unknown) => number | undefined = () => undefined
+        config: Partial<{
+            errorCodesMapping: (e: unknown) => number | undefined;
+            context: (rawRequestData: RawRequestModel) => Promise<Context>;
+        }> = {}
     ) =>
     <
         InputSchema extends StandardSchemaV1,
         OutputSchema extends StandardSchemaV1
     >(
         handler: Handler<InputSchema, OutputSchema>,
-        successStatusCode = 200,
-        handlerErrorCodesMapping: (e: unknown) => number | undefined = () =>
-            undefined
+        endpointConfig?: Partial<{
+            errorCodesMapping: (e: unknown) => number | undefined;
+            successStatusCode: number;
+            metadata: {
+                route: { controller: string; path?: string[] };
+                method: HttpMethod;
+                description: string;
+            };
+        }>
     ) => {
         const withContract = <
             RequestQuerySchema extends StandardSchemaV1 | undefined,
@@ -82,22 +100,24 @@ export const createEndpoint =
                 ResponseCookies
             >;
         }) => {
-            const withDataMapping = (
-                transformers: {
-                    inputFromRequest: (
-                        x: SafelyInferOutput<RequestBodySchema> &
-                            SafelyInferOutput<RequestQuerySchema> &
-                            SafelyInferOutput<RequestFormDataSchema> &
-                            SafelyInferOutput<RequestHeadersSchema> &
-                            SafelyInferOutput<RequestCookiesSchema>
-                    ) => StandardSchemaV1.InferOutput<InputSchema>;
-                } & OutputTransformers<
+            const withDataMapping = (transformers: {
+                inputFromRequest: (
+                    payload: RemoveUnknownAndUndefined<{
+                        body: SafelyInferOutput<RequestBodySchema>;
+                        query: SafelyInferOutput<RequestQuerySchema>;
+                        formData: SafelyInferOutput<RequestFormDataSchema>;
+                        headers: SafelyInferOutput<RequestHeadersSchema>;
+                        cookies: SafelyInferOutput<RequestCookiesSchema>;
+                        context: Context;
+                    }>
+                ) => StandardSchemaV1.InferOutput<InputSchema>;
+                outputFromResponse: OutputTransformers<
                     OutputSchema,
                     ResponseBody,
                     ResponseHeaders,
                     ResponseCookies
-                >
-            ) => {
+                >;
+            }) => {
                 const requestSchemas = payload.request(handler.inputSchema);
                 const responseSchemas = payload.response?.(
                     handler.outputSchema
@@ -105,134 +125,123 @@ export const createEndpoint =
                     body: handler.outputSchema
                 };
 
+                const rawRequestData: RawRequestModel = {};
+
                 const transformedREST = handler.withTransformedContract<
                     RESTRequest,
                     RESTResponse
                 >({
                     input: async (...input) => {
-                        let result: Object = {};
-
                         /**
-                         * Query parameters parsing if needed.
+                         * Query parameters logic.
                          */
-                        if ('query' in requestSchemas && requestSchemas.query) {
-                            const queryParameters =
-                                await adapter.input.queryParams(...input);
+                        const queryParameters = await adapter.input.queryParams(
+                            ...input
+                        );
 
-                            const parsedQueryParameters =
-                                await requestSchemas.query[
-                                    '~standard'
-                                ].validate(queryParameters);
+                        const parsedQueryParameters =
+                            'query' in requestSchemas
+                                ? await requestSchemas.query[
+                                      '~standard'
+                                  ].validate(queryParameters)
+                                : { value: queryParameters };
 
-                            if (parsedQueryParameters.issues) {
-                                throw new Error();
-                            }
-
-                            result = {
-                                ...result,
-                                ...(parsedQueryParameters.value as object)
-                            };
+                        if (parsedQueryParameters.issues) {
+                            throw new Error();
                         }
 
-                        /**
-                         * Body parsing if needed.
-                         */
-                        if ('body' in requestSchemas && requestSchemas.body) {
-                            const body = await adapter.input.body(...input);
-                            const parsedBody =
-                                await requestSchemas.body['~standard'].validate(
-                                    body
-                                );
-                            if (parsedBody.issues) {
-                                throw new Error();
-                            }
-                            result = {
-                                ...result,
-                                ...(parsedBody.value as object)
-                            };
-                        }
+                        rawRequestData.query =
+                            parsedQueryParameters.value as object;
 
                         /**
-                         * FormData parsing if needed.
+                         * Body logic.
                          */
-                        if (
-                            'formData' in requestSchemas &&
-                            requestSchemas.formData
-                        ) {
-                            const formData = await adapter.input.formData(
-                                ...input
-                            );
-                            const parsedFormData =
-                                await requestSchemas.formData[
-                                    '~standard'
-                                ].validate(formData);
+                        const body = await adapter.input.body(...input);
 
-                            if (parsedFormData.issues) {
-                                throw new Error();
-                            }
+                        const parsedBody =
+                            'body' in requestSchemas
+                                ? await requestSchemas.body[
+                                      '~standard'
+                                  ].validate(body)
+                                : { value: body };
 
-                            result = {
-                                ...result,
-                                ...(parsedFormData.value as object)
-                            };
+                        if (parsedBody.issues) {
+                            throw new Error();
                         }
+
+                        rawRequestData.body = parsedBody.value;
 
                         /**
-                         * Headers parsing if needed.
+                         * Form Data logic.
                          */
-                        if (
-                            'headers' in requestSchemas &&
-                            requestSchemas.headers
-                        ) {
-                            const headers = await adapter.input.headers(
-                                ...input
-                            );
-                            const parsedHeaders =
-                                await requestSchemas.headers[
-                                    '~standard'
-                                ].validate(headers);
-                            if (parsedHeaders.issues) {
-                                throw new Error();
-                            }
-                            result = {
-                                ...result,
-                                ...(parsedHeaders.value as object)
-                            };
+                        const formData = await adapter.input.formData(...input);
+
+                        const parsedFormData =
+                            'formData' in requestSchemas
+                                ? await requestSchemas.formData[
+                                      '~standard'
+                                  ].validate(formData)
+                                : { value: formData };
+
+                        if (parsedFormData.issues) {
+                            throw new Error();
                         }
 
+                        rawRequestData.formData =
+                            parsedFormData.value as object;
+
                         /**
-                         * Cookies parsing if needed.
+                         * Headers logic.
                          */
-                        if (
-                            'cookies' in requestSchemas &&
-                            requestSchemas.cookies
-                        ) {
-                            const cookies = await adapter.input.cookies(
-                                ...input
-                            );
-                            const parsedCookies =
-                                await requestSchemas.cookies[
-                                    '~standard'
-                                ].validate(cookies);
-                            if (parsedCookies.issues) {
-                                throw new Error();
-                            }
-                            result = {
-                                ...result,
-                                ...(parsedCookies.value as object)
-                            };
+                        const headers = await adapter.input.headers(...input);
+
+                        const parsedHeaders =
+                            'headers' in requestSchemas
+                                ? await requestSchemas.headers[
+                                      '~standard'
+                                  ].validate(headers)
+                                : { value: headers };
+
+                        if (parsedHeaders.issues) {
+                            throw new Error();
                         }
+
+                        rawRequestData.headers = parsedHeaders.value as object;
+
+                        /**
+                         * Cookies logic.
+                         */
+                        const cookies = await adapter.input.cookies(...input);
+
+                        const parsedCookies =
+                            'cookies' in requestSchemas
+                                ? await requestSchemas.cookies[
+                                      '~standard'
+                                  ].validate(cookies)
+                                : { value: cookies };
+
+                        if (parsedCookies.issues) {
+                            throw new Error();
+                        }
+
+                        rawRequestData.cookies = parsedCookies.value as object;
+
+                        /**
+                         * Output building.
+                         */
+                        const context = await config?.context?.(rawRequestData);
 
                         const output = await handler.inputSchema[
                             '~standard'
                         ].validate(
-                            transformers.inputFromRequest(
-                                result as unknown as any
-                            )
+                            transformers.inputFromRequest({
+                                ...rawRequestData,
+                                context
+                            } as any)
                         );
 
                         if (output.issues) {
-                            throw new Error();
+                            throw new Error(JSON.stringify(output.issues));
                         }
 
                         return output.value;
@@ -240,8 +249,10 @@ export const createEndpoint =
                     output: async (response, ...input) => {
                         if (!response.success) {
                             const statusCode =
-                                handlerErrorCodesMapping(response.error) ??
-                                errorCodesMapping(response.error) ??
+                                endpointConfig?.errorCodesMapping?.(
+                                    response.error
+                                ) ??
+                                config?.errorCodesMapping?.(response.error) ??
                                 defaultErrorCodesMapping(response.error) ??
                                 500;
                             return await adapter.output(
@@ -254,6 +265,11 @@ export const createEndpoint =
                             );
                         }
 
+                        const output: any =
+                            await transformers.outputFromResponse(
+                                response.result
+                            );
+
                         const getBodyPart = async () => {
                             if (
                                 'body' in responseSchemas &&
@@ -261,9 +277,7 @@ export const createEndpoint =
                             ) {
                                 const result = await responseSchemas.body[
                                     '~standard'
-                                ].validate(
-                                    transformers.outputToBody!(response.result)
-                                );
+                                ].validate(output.body);
                                 if (result.issues) {
                                     throw new Error();
                                 }
@@ -276,16 +290,11 @@ export const createEndpoint =
                         const getCookiesPart = async () => {
                             if (
                                 'cookies' in responseSchemas &&
-                                responseSchemas.cookies &&
-                                'outputToCookies' in transformers
+                                responseSchemas.cookies
                             ) {
                                 const result = await responseSchemas.cookies[
                                     '~standard'
-                                ].validate(
-                                    transformers.outputToCookies!(
-                                        response.result
-                                    )
-                                );
+                                ].validate(output.cookies);
                                 if (result.issues) {
                                     throw new Error();
                                 }
@@ -298,16 +307,11 @@ export const createEndpoint =
                         const getHeadersPart = async () => {
                             if (
                                 'headers' in responseSchemas &&
-                                responseSchemas.headers &&
-                                'outputToHeaders' in transformers
+                                responseSchemas.headers
                             ) {
                                 const result = await responseSchemas.headers[
                                     '~standard'
-                                ].validate(
-                                    transformers.outputToHeaders!(
-                                        response.result
-                                    )
-                                );
+                                ].validate(output.headers);
                                 if (result.issues) {
                                     throw new Error();
                                 }
@@ -323,7 +327,8 @@ export const createEndpoint =
                                 cookies: await getCookiesPart(),
                                 headers: await getHeadersPart(),
                                 success: true,
-                                statusCode: successStatusCode
+                                statusCode:
+                                    endpointConfig?.successStatusCode ?? 200
                             },
                             ...input
                         );
@@ -341,7 +346,7 @@ export const createEndpoint =
             return { withDataMapping };
         };
 
-        const withRequestSchemas = <
+        const input = <
             RequestQuerySchema extends StandardSchemaV1 | undefined,
             RequestBodySchema extends StandardSchemaV1 | undefined,
             RequestFormDataSchema extends StandardSchemaV1 | undefined,
@@ -378,12 +383,6 @@ export const createEndpoint =
                 ? true
                 : false;
 
-            type AllInput = SafelyInferInput<RequestQuerySchema> &
-                SafelyInferInput<RequestBodySchema> &
-                SafelyInferInput<RequestFormDataSchema> &
-                SafelyInferInput<RequestHeadersSchema> &
-                SafelyInferInput<RequestCookiesSchema>;
-
             type ValidQueryParams =
                 true extends CheckCompatibility<
                     Record<string, never>,
@@ -396,60 +395,55 @@ export const createEndpoint =
                       ? true
                       : false;
 
-            type CompatibleInput =
-                AllInput extends StandardSchemaV1.InferOutput<InputSchema>
-                    ? true
-                    : false;
-
-            const endpoint = result.withDataMapping({
-                inputFromRequest: (x) => x,
-                // @ts-expect-error
-                outputToBody: (x) => x
-            });
-
-            const withResponseSchemas = <
-                ResponseBody extends StandardSchemaV1 | undefined,
-                ResponseHeaders extends StandardSchemaV1 | undefined,
-                ResponseCookies extends StandardSchemaV1 | undefined
-            >(
-                schemas: AdapterResponseSchemas<
-                    OutputSchema,
-                    ResponseBody,
-                    ResponseHeaders,
-                    ResponseCookies
-                >
-            ) => {
-                const mapData = (
-                    logic: OutputTransformers<
+            const withOutputSchemas =
+                (
+                    requestData: Parameters<
+                        typeof result.withDataMapping
+                    >[0]['inputFromRequest']
+                ) =>
+                <
+                    ResponseBody extends StandardSchemaV1 | undefined,
+                    ResponseHeaders extends StandardSchemaV1 | undefined,
+                    ResponseCookies extends StandardSchemaV1 | undefined
+                >(
+                    schemas: AdapterResponseSchemas<
                         OutputSchema,
                         ResponseBody,
                         ResponseHeaders,
                         ResponseCookies
                     >
                 ) => {
-                    const result = withContract<
-                        RequestQuerySchema,
-                        RequestBodySchema,
-                        RequestFormDataSchema,
-                        RequestHeadersSchema,
-                        RequestCookiesSchema,
-                        ResponseBody,
-                        ResponseHeaders,
-                        ResponseCookies
-                    >({
-                        request,
-                        response: schemas
-                    }).withDataMapping({
-                        inputFromRequest: (x) => x,
-                        ...logic
-                    });
+                    const mapOutput = (
+                        logic: OutputTransformers<
+                            OutputSchema,
+                            ResponseBody,
+                            ResponseHeaders,
+                            ResponseCookies
+                        >
+                    ) => {
+                        const result = withContract<
+                            RequestQuerySchema,
+                            RequestBodySchema,
+                            RequestFormDataSchema,
+                            RequestHeadersSchema,
+                            RequestCookiesSchema,
+                            ResponseBody,
+                            ResponseHeaders,
+                            ResponseCookies
+                        >({
+                            request,
+                            response: schemas
+                        }).withDataMapping({
+                            inputFromRequest: requestData,
+                            outputFromResponse: logic
+                        });
 
-                    return result;
+                        return result;
+                    };
+                    return { mapOutput };
                 };
-                return { mapped: mapData };
-            };
 
-            const withRequestMapping = (
+            const mapInput = (
                 request: Parameters<
                     typeof result.withDataMapping
                 >[0]['inputFromRequest']
@@ -457,24 +451,22 @@ export const createEndpoint =
                 const withDataMapping = result.withDataMapping({
                     inputFromRequest: request,
                     // @ts-expect-error
-                    outputToBody: (x) => x
+                    outputFromResponse: async (x) => {
+                        return {
+                            body: x
+                        };
+                    }
                 });
 
                 return Object.assign(withDataMapping, {
-                    withResponseSchemas
+                    output: withOutputSchemas(request)
                 });
             };
 
-            return Object.assign(endpoint, {
-                mapped: withRequestMapping,
-                withResponseSchemas
-            }) as true extends ValidQueryParams
-                ? true extends CompatibleInput
-                    ? typeof endpoint & {
-                          mapped: typeof withRequestMapping;
-                          withResponseSchemas: typeof withResponseSchemas;
-                      }
-                    : { mapped: typeof withRequestMapping }
+            return {
+                mapInput
+            } as true extends ValidQueryParams
+                ? { mapInput: typeof mapInput }
                 : {
                       ERROR: 'INVALID QUERY PARAMETERS SCHEMA';
                       CURRENT: SafelyInferInput<RequestQuerySchema>;
@@ -482,6 +474,6 @@ export const createEndpoint =
         };
 
         return {
-            withRequestSchemas
+            input
         };
     };

@@ -1,45 +1,23 @@
 import { defineHandler } from '@domain-first/handlers';
+import mockAdapter from '@domain-first/handlers-mock-rest-adapter';
 import { describe, expect, test } from '@rstest/core';
 import z from 'zod';
 import { createEndpoint } from './create-endpoint';
-import type { Adapter, EndpointContract } from './types';
+import type { EndpointContract } from './types';
 
-type Input =
-    | 'input-body'
-    | 'input-cookies'
-    | 'input-formData'
-    | 'input-headers'
-    | 'input-queryParams';
+const mockEndpoint = createEndpoint(mockAdapter, {
+    context: async (x) => {
+        if (x.headers && 'Authorization' in x.headers) {
+            const authData = x.headers.Authorization as string;
+            const token = authData.substring('Bearer '.length);
+            return { token };
+        }
 
-type Output = 'output-body' | 'output-cookies' | 'output-request';
+        return { token: undefined };
+    }
+});
 
 describe('object adapter', async () => {
-    const objectAdapter: Adapter<
-        [inputData: Partial<Record<Input, any>>],
-        Partial<Record<Output, any>>
-    > = {
-        input: {
-            body: (x) => x['input-body'],
-            cookies: (x) => x['input-cookies'],
-            formData: (x) => x['input-formData'],
-            headers: (x) => x['input-headers'],
-            queryParams: (x) => x['input-queryParams']
-        },
-        output: async (x) => {
-            if (x.success) {
-                const { body, cookies, headers } = x;
-                return {
-                    'output-body': body,
-                    'output-cookies': cookies,
-                    'output-request': headers
-                };
-            }
-            throw x.error;
-        }
-    };
-
-    const createObjectEndpoint = createEndpoint(objectAdapter);
-
     const sum = defineHandler({
         inputSchema: z.object({ a: z.number(), b: z.number() }),
         outputSchema: z.number(),
@@ -47,11 +25,16 @@ describe('object adapter', async () => {
     });
 
     describe('params in query', async () => {
-        const allInQuery = createObjectEndpoint(sum)
-            .withRequestSchemas((query) => ({
+        const allInQuery = mockEndpoint(sum, {
+            successStatusCode: 205
+        })
+            .input((query) => ({
                 query: z.record(z.keyof(query), z.string())
             }))
-            .mapped((x) => ({ a: +x.a, b: +x.b }));
+            .mapInput((x) => ({
+                a: +x.query.a,
+                b: +x.query.b + (x.context.token?.length ? 100 : 0)
+            }));
 
         type CONTRACT = EndpointContract<typeof allInQuery>;
         type Check<
@@ -69,18 +52,24 @@ describe('object adapter', async () => {
         > = {};
         type _ = Check<CONTRACT>;
         const result = await allInQuery({
-            'input-queryParams': { a: '111', b: '333' }
+            queryParams: { a: '111', b: '333' },
+            headers: { Authorization: 'Bearer afjsfkajbfkafbaks' }
         });
         test('has correct response', () =>
-            expect(result['output-body']).toBe(444));
+            expect(result.body).toBe(111 + 333 + 100));
+        test('has correct status code', () =>
+            expect(result.statusCode).toBe(205));
     });
 
     describe('params in body', async () => {
-        const allInBody = createObjectEndpoint(sum).withRequestSchemas(
-            (body) => ({
+        const allInBody = mockEndpoint(sum)
+            .input((body) => ({
                 body
-            })
-        );
+            }))
+            .mapInput(({ body }) => ({
+                ...body
+            }));
+
         type CONTRACT = EndpointContract<typeof allInBody>;
         type Check<
             _ extends {
@@ -97,49 +86,8 @@ describe('object adapter', async () => {
         > = {};
         type _ = Check<CONTRACT>;
         const result = await allInBody({
-            'input-body': { a: 111, b: 333 }
+            body: { a: 111, b: 333 }
         });
-        test('has correct response', () =>
-            expect(result['output-body']).toBe(444));
+        test('has correct response', () => expect(result.body).toBe(444));
     });
-
-    const custom = createObjectEndpoint(sum)
-        .withRequestSchemas((x) => ({
-            body: x.pick({ a: true }),
-            query: z.object({ b: z.string() }) //x.omit({ a: true })
-        }))
-        .mapped((x) => ({ a: x.a, b: +x.b }))
-        .withResponseSchemas((_inputSchema) => {
-            return {
-                body: z.object({ sup: z.string() }),
-                cookies: z.string()
-            };
-        })
-        .mapped({
-            outputToBody: (x) => ({ sup: x.toString() }),
-            outputToCookies: (x) => x.toString()
-        });
-    // custom.
-
-    /**
-     * type FFFF = {
-         request: {
-             query: {
-                 b: string;
-             };
-         } & {
-             body: {
-                 a: number;
-             };
-         };
-         response: {
-             body: {
-                 sup: string;
-             };
-         } & {
-             cookies: string;
-         };
-     }
-     */
-    type _FFFF = EndpointContract<typeof custom>;
 });
