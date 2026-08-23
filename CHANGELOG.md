@@ -1,3 +1,10 @@
+## [4.0.1](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v4.0.0...v4.0.1) (2026-08-23)
+
+
+### Bug Fixes
+
+* README fix (POST -> PATCH in PATCH example) ([2ff7849](https://github.com/alevnyacow/domain-first-handlers-rest/commit/2ff78498e5998f066f976ebf200281f6c90d6255))
+
 # [4.0.0](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v3.0.0...v4.0.0) (2026-08-23)
 
 
