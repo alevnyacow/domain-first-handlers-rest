@@ -1,4 +1,66 @@
-import type { StandardSchemaV1 } from '@standard-schema/spec';
+import type {
+    StandardJSONSchemaV1,
+    StandardSchemaV1
+} from '@standard-schema/spec';
+
+export type HttpMethod =
+    | 'get'
+    | 'post'
+    | 'put'
+    | 'patch'
+    | 'delete'
+    | 'head'
+    | 'options';
+
+export type ErrorStatuses = Record<
+    number,
+    {
+        description?: string;
+        checks: Array<(e: Error) => boolean>;
+        toFullModel?: <T extends Error = Error>(
+            e: T
+        ) => {
+            name: string;
+            message?: string;
+            details?: object;
+        };
+    }
+>;
+
+export type Metadata = {
+    route: { method: HttpMethod; path: string[] };
+    description?: string;
+    successResponseDescription?: string;
+    summary?: string;
+    successStatusCode?: number;
+    errorStatuses?: ErrorStatuses;
+};
+
+export type JSONSchemas = {
+    requestQuery: StandardJSONSchemaV1 | undefined;
+    requestBody: StandardJSONSchemaV1 | undefined;
+    requestCookies: StandardJSONSchemaV1 | undefined;
+    requestFormData: StandardJSONSchemaV1 | undefined;
+    requestHeaders: StandardJSONSchemaV1 | undefined;
+    responseBody: StandardJSONSchemaV1 | undefined;
+    responseHeaders: StandardJSONSchemaV1 | undefined;
+    responseCookies: StandardJSONSchemaV1 | undefined;
+};
+
+export type RawAPISchemas = {
+    requestSchemas: {
+        query?: unknown;
+        body?: unknown;
+        cookies?: unknown;
+        formData?: unknown;
+        headers?: unknown;
+    };
+    responseSchemas: {
+        body?: unknown;
+        headers?: unknown;
+        cookies?: unknown;
+    };
+};
 
 export type InferRequestQuery<T> = T extends {
     _api_schemas: {

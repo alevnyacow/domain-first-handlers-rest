@@ -5,17 +5,10 @@ import type {
     AdapterRequestSchemas,
     AdapterResponseSchemas,
     CheckCompatibility,
+    ErrorStatuses,
+    Metadata,
     RawRequestModel
 } from './types';
-
-export type HttpMethod =
-    | 'GET'
-    | 'POST'
-    | 'PUT'
-    | 'PATCH'
-    | 'DELETE'
-    | 'HEAD'
-    | 'OPTIONS';
 
 type RemoveUnknownAndUndefined<T> = {
     [K in keyof T as unknown extends T[K]
@@ -50,13 +43,11 @@ type OutputTransformers<
           headers: SafelyInferOutput<ResponseHeaders>;
       }>;
 
-const defaultErrorCodesMapping = (_e: unknown) => undefined;
-
 export const createEndpoint =
     <RESTRequest extends unknown[], RESTResponse, Context = undefined>(
         adapter: Adapter<RESTRequest, RESTResponse>,
         config: Partial<{
-            errorCodesMapping: (e: unknown) => number | undefined;
+            errorStatuses: ErrorStatuses;
             context: (rawRequestData: RawRequestModel) => Promise<Context>;
         }> = {}
     ) =>
@@ -65,15 +56,7 @@ export const createEndpoint =
         OutputSchema extends StandardSchemaV1
     >(
         handler: Handler<InputSchema, OutputSchema>,
-        endpointConfig?: Partial<{
-            errorCodesMapping: (e: unknown) => number | undefined;
-            successStatusCode: number;
-            metadata: {
-                route: { controller: string; path?: string[] };
-                method: HttpMethod;
-                description: string;
-            };
-        }>
+        metadata: Metadata
     ) => {
         const withContract = <
             RequestQuerySchema extends StandardSchemaV1 | undefined,
@@ -248,17 +231,53 @@ export const createEndpoint =
                     },
                     output: async (response, ...input) => {
                         if (!response.success) {
-                            const statusCode =
-                                endpointConfig?.errorCodesMapping?.(
-                                    response.error
-                                ) ??
-                                config?.errorCodesMapping?.(response.error) ??
-                                defaultErrorCodesMapping(response.error) ??
-                                500;
+                            let statusCode = 500;
+                            let errorResponse: {
+                                name: string;
+                                message?: string;
+                                details?: object;
+                            } = { name: response.error.name };
+
+                            // TODO - remove copy-paste
+
+                            for (const sharedErrors of Object.entries(
+                                config.errorStatuses ?? {}
+                            )) {
+                                const isCurrentError = sharedErrors[1].checks
+                                    .map((x) => x(response.error))
+                                    .some((x) => !!x);
+                                if (isCurrentError) {
+                                    statusCode = +sharedErrors[0];
+                                    if (sharedErrors[1].toFullModel) {
+                                        errorResponse =
+                                            sharedErrors[1].toFullModel(
+                                                response.error
+                                            );
+                                    }
+                                }
+                            }
+
+                            for (const endpointErrors of Object.entries(
+                                metadata.errorStatuses ?? {}
+                            )) {
+                                const isCurrentError = endpointErrors[1].checks
+                                    .map((x) => x(response.error))
+                                    .some((x) => !!x);
+                                if (isCurrentError) {
+                                    statusCode = +endpointErrors[0];
+                                    if (endpointErrors[1].toFullModel) {
+                                        errorResponse =
+                                            endpointErrors[1].toFullModel(
+                                                response.error
+                                            );
+                                    }
+                                }
+                            }
+
                             return await adapter.output(
                                 {
                                     success: false,
-                                    error: response.error,
+                                    error: errorResponse,
                                     statusCode
                                 },
                                 ...input
@@ -327,8 +346,7 @@ export const createEndpoint =
                                 cookies: await getCookiesPart(),
                                 headers: await getHeadersPart(),
                                 success: true,
-                                statusCode:
-                                    endpointConfig?.successStatusCode ?? 200
+                                statusCode: metadata?.successStatusCode ?? 200
                             },
                             ...input
                         );
@@ -339,6 +357,13 @@ export const createEndpoint =
                     _api_schemas: {
                         requestSchemas,
                         responseSchemas
+                    },
+                    metadata: {
+                        ...metadata,
+                        errorStatuses: {
+                            ...(config.errorStatuses ?? {}),
+                            ...metadata.errorStatuses
+                        }
                     }
                 });
             };

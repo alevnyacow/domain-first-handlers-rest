@@ -26,15 +26,32 @@ describe('object adapter', async () => {
 
     describe('params in query', async () => {
         const allInQuery = mockEndpoint(sum, {
-            successStatusCode: 205
+            route: { method: 'get', path: ['ssss', 'fs'] },
+            successStatusCode: 205,
+            errorStatuses: {
+                404: {
+                    checks: [(_x) => true],
+                    toFullModel: (x) => ({
+                        name: x.name,
+                        message: x.message
+                    })
+                }
+            }
         })
-            .input((query) => ({
-                query: z.record(z.keyof(query), z.string())
+            .input((_query) => ({
+                query: _query
+                    .omit({ a: true, b: true })
+                    .extend({ a: z.string(), b: z.string() })
             }))
             .mapInput((x) => ({
                 a: +x.query.a,
                 b: +x.query.b + (x.context.token?.length ? 100 : 0)
             }));
+
+        // generateOpenAPI([allInQuery], {
+        //     apiMetadata: { title: 'fasf' },
+        //     outputFile: { path: 'openapi.json' }
+        // });
 
         type CONTRACT = EndpointContract<typeof allInQuery>;
         type Check<
@@ -62,7 +79,9 @@ describe('object adapter', async () => {
     });
 
     describe('params in body', async () => {
-        const allInBody = mockEndpoint(sum)
+        const allInBody = mockEndpoint(sum, {
+            route: { method: 'get', path: ['sup'] }
+        })
             .input((body) => ({
                 body
             }))

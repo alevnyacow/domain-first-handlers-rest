@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-    Expose your Domain-First Handlers as REST endpoints.
+    Expose domain operations through REST without coupling your domain to HTTP.
 </p>
 
 <p align="center">
@@ -54,7 +54,9 @@ const sum = defineHandler({
 
 const nextEndpoint = createEndpoint(nextAdapter);
 
-const sumPOST = nextEndpoint(sum)
+const sumPOST = nextEndpoint(sum, {
+    route: { method: "post", path: ["sum"] },
+})
     /**
      * Describe input schemas.
      */
@@ -113,7 +115,7 @@ import { defineHandler } from "@domain-first/handlers";
 import z from "zod";
 import adapter from "./adapter";
 
-class UnathorizedAccessError extends Error {}
+class UnauthorizedAccessError extends Error {}
 
 /**
  * Context logic.
@@ -122,7 +124,7 @@ const authContext = async (rawRequest: RawRequestModel) => {
     const bearerHeader = rawRequest.headers?.Authorization ?? "";
 
     if (!bearerHeader) {
-        throw new UnathorizedAccessError();
+        throw new UnauthorizedAccessError();
     }
 
     const token = bearerHeader.split(" ").pop();
@@ -142,10 +144,11 @@ const nextEndpointWithAuth = createEndpoint(nextAdapter, {
 
         return { auth };
     },
-    errorCodesMapping: (error: unknown) => {
-        if (error instanceof UnathorizedAccessError) {
-            return 401;
-        }
+    errorStatuses: {
+        401: {
+            checks: [(x) => x instanceof UnauthorizedAccessError],
+            description: "User is not logged in",
+        },
     },
 });
 
@@ -157,7 +160,9 @@ const greetUser = defineHandler({
     },
 });
 
-const greetUserEndpoint = nextEndpointWithAuth(greetUser)
+const greetUserEndpoint = nextEndpointWithAuth(greetUser, {
+    route: { method: "get", path: ["users", "greet"] },
+})
     .input((inputSchema) => ({
         query: inputSchema.pick({ name: true }),
     }))
@@ -173,7 +178,9 @@ const greetUserEndpoint = nextEndpointWithAuth(greetUser)
 ## Defining custom output
 
 ```ts
-const sumPATCH = nextEndpoint(sum)
+const sumPATCH = nextEndpoint(sum, {
+    route: { method: "patch", path: ["sum"] },
+})
     .input((schema) => ({
         body: schema,
     }))
@@ -191,4 +198,25 @@ const sumPATCH = nextEndpoint(sum)
     }));
 
 export const POST = sumPOST;
+```
+
+## OpenAPI generation
+
+```ts
+import { generateOpenAPI } from "@domain-first/handlers-rest";
+
+const endpoints = [sumPOST, greetUserEndpoint, sumPATCH];
+
+const openAPI = async () => {
+    const openAPIDocument = generateOpenAPI(endpoints, {
+        apiMetadata: { title: "Test API" },
+        outputFile: { path: "openapi.json" },
+        /**
+         * If your Standard Schemas are not Standard JSON Schemas
+         * out of the box, you can pass optional mapper:
+         *
+         * standardSchemaToJSONSchema?: (x: any) => StandardJSONSchemaV1;
+         */
+    });
+};
 ```
