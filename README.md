@@ -197,7 +197,7 @@ const sumPATCH = nextEndpoint(sum, {
         body: { result: output },
     }));
 
-export const POST = sumPOST;
+export const PATCH = sumPATCH;
 ```
 
 ## OpenAPI generation
