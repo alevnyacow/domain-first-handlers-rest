@@ -1,3 +1,15 @@
+# [4.0.0](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v3.0.0...v4.0.0) (2026-08-23)
+
+
+### Features
+
+* OpenAPI generation ([0c40651](https://github.com/alevnyacow/domain-first-handlers-rest/commit/0c406515a2ca35aa055767c2cda3370f2b992bc3))
+
+
+### BREAKING CHANGES
+
+* metadata, new API
+
 # [3.0.0](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v2.1.0...v3.0.0) (2026-08-20)
 
 
