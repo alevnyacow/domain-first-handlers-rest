@@ -2,10 +2,10 @@ import { defineHandler } from '@domain-first/handlers';
 import mockAdapter from '@domain-first/handlers-mock-rest-adapter';
 import { describe, expect, test } from '@rstest/core';
 import z from 'zod';
-import { createEndpoint } from './create-endpoint';
+import { createEndpoint, type EndpointGenerator } from './create-endpoint';
 import type { EndpointContract } from './types';
 
-const mockEndpoint = createEndpoint(mockAdapter, {
+const endpoint = createEndpoint({
     context: async (x) => {
         if (x.headers && 'Authorization' in x.headers) {
             const authData = x.headers.Authorization as string;
@@ -16,6 +16,8 @@ const mockEndpoint = createEndpoint(mockAdapter, {
         return { token: undefined };
     }
 });
+
+const mockEndpoint = endpoint(mockAdapter);
 
 describe('object adapter', async () => {
     const sum = defineHandler({
@@ -47,6 +49,14 @@ describe('object adapter', async () => {
                 a: +x.query.a,
                 b: +x.query.b + (x.context.token?.length ? 100 : 0)
             }));
+
+        const aa = (s: EndpointGenerator<{ token: string | undefined }>) => {
+            s(sum, { route: { method: 'delete', path: [] } })
+                .input((body) => ({ body }))
+                .mapInput((x) => ({ a: x.body.a, b: x.body.b }));
+        };
+
+        aa(mockEndpoint);
 
         // generateOpenAPI([allInQuery], {
         //     apiMetadata: { title: 'fasf' },

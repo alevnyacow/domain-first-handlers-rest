@@ -44,6 +44,18 @@ type OutputTransformers<
       }>;
 
 export const createEndpoint =
+    <Context = undefined>(
+        config: Partial<{
+            errorStatuses: ErrorStatuses;
+            context: (rawRequestData: RawRequestModel) => Promise<Context>;
+        }> = {}
+    ) =>
+    <RESTRequest extends unknown[], RESTResponse>(
+        adapter: Adapter<RESTRequest, RESTResponse>
+    ) =>
+        endpointGenerator(adapter, config);
+
+const endpointGenerator =
     <RESTRequest extends unknown[], RESTResponse, Context = undefined>(
         adapter: Adapter<RESTRequest, RESTResponse>,
         config: Partial<{
@@ -502,3 +514,9 @@ export const createEndpoint =
             input
         };
     };
+
+export type EndpointGenerator<
+    Context = undefined,
+    Input extends unknown[] = any[],
+    Output = any
+> = ReturnType<typeof endpointGenerator<Input, Output, Context>>;

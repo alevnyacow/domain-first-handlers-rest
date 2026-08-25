@@ -52,7 +52,8 @@ const sum = defineHandler({
     handler: async ({ a, b }) => a + b,
 });
 
-const nextEndpoint = createEndpoint(nextAdapter);
+const endpoint = createEndpoint();
+const nextEndpoint = endpoint(nextAdapter);
 
 const sumPOST = nextEndpoint(sum, {
     route: { method: "post", path: ["sum"] },
@@ -138,7 +139,7 @@ const authContext = async (rawRequest: RawRequestModel) => {
 /**
  * Adding context in endpoint generator.
  */
-const nextEndpointWithAuth = createEndpoint(nextAdapter, {
+const endpointWithAuth = createEndpoint({
     context: async (rawRequest) => {
         const auth = await authContext(rawRequest);
 
@@ -151,6 +152,8 @@ const nextEndpointWithAuth = createEndpoint(nextAdapter, {
         },
     },
 });
+
+const nextEndpointWithAuth = endpointWithAuth(nextAdapter);
 
 const greetUser = defineHandler({
     input: z.object({ authorId: z.string(), name: z.string() }),
