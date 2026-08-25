@@ -13,6 +13,7 @@ export type GenerateOpenAPIOptions = {
         description?: string;
         servers?: OpenAPIV3.ServerObject[];
     };
+    apiRoutePrefix?: string[];
     standardSchemaToJSONSchema?: (x: any) => StandardJSONSchemaV1;
     outputFile?: {
         path: string;
@@ -146,7 +147,15 @@ export const generateOpenAPI = (
             };
         }
 
-        const path = route.metadata.route.path.join('/');
+        const path = [
+            ...(options.apiRoutePrefix ?? []),
+            ...route.metadata.route.path
+        ].join('/');
+
+        operation.tags = route.metadata.tags
+            ? route.metadata.tags
+            : [route.metadata.route.path[0]];
+
         paths[path] ??= {};
 
         paths[path]![route.metadata.route.method] = operation;

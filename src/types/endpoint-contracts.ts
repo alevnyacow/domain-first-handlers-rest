@@ -33,6 +33,7 @@ export type Metadata = {
     successResponseDescription?: string;
     summary?: string;
     successStatusCode?: number;
+    tags?: string[];
     errorStatuses?: ErrorStatuses;
 };
 
