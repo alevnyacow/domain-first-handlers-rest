@@ -1,3 +1,15 @@
+# [5.0.0](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v4.0.1...v5.0.0) (2026-08-25)
+
+
+### Features
+
+* EndpointGenerator type, multiple ([10e3795](https://github.com/alevnyacow/domain-first-handlers-rest/commit/10e3795253638b81493e7751b7d3e1702dd326e4))
+
+
+### BREAKING CHANGES
+
+* new api, createEndpoint(config) => (adapter)
+
 ## [4.0.1](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v4.0.0...v4.0.1) (2026-08-23)
 
 
