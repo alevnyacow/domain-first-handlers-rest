@@ -1,3 +1,10 @@
+## [5.1.2](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v5.1.1...v5.1.2) (2026-08-26)
+
+
+### Bug Fixes
+
+* added next.js adapter in README ([c80a35a](https://github.com/alevnyacow/domain-first-handlers-rest/commit/c80a35a69b3ec4528f1d430d58542950ff8d7c43))
+
 ## [5.1.1](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v5.1.0...v5.1.1) (2026-08-26)
 
 
