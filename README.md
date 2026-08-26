@@ -25,6 +25,7 @@ The API is intentionally small and fluent: describe transport → map to domain 
 
 # Adapters
 
+- [Adapter + App router endpoints for Next.js](https://www.npmjs.com/package/@domain-first/handlers-next)
 - [Mock Adapter](https://www.npmjs.com/package/@domain-first/handlers-mock-rest-adapter)
 
 # Examples
