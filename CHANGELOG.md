@@ -1,3 +1,10 @@
+## [5.1.1](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v5.1.0...v5.1.1) (2026-08-26)
+
+
+### Bug Fixes
+
+* parse body and formData only if there are schemas ([2ac52e7](https://github.com/alevnyacow/domain-first-handlers-rest/commit/2ac52e728624332a00931798ed0b9b84836bf433))
+
 # [5.1.0](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v5.0.0...v5.1.0) (2026-08-25)
 
 
