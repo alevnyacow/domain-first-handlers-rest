@@ -151,14 +151,12 @@ const endpointGenerator =
                         /**
                          * Body logic.
                          */
-                        const body = await adapter.input.body(...input);
-
                         const parsedBody =
                             'body' in requestSchemas
                                 ? await requestSchemas.body[
                                       '~standard'
-                                  ].validate(body)
-                                : { value: body };
+                                  ].validate(await adapter.input.body(...input))
+                                : { value: {} };
 
                         if (parsedBody.issues) {
                             throw new Error();
@@ -169,14 +167,15 @@ const endpointGenerator =
                         /**
                          * Form Data logic.
                          */
-                        const formData = await adapter.input.formData(...input);
 
                         const parsedFormData =
                             'formData' in requestSchemas
                                 ? await requestSchemas.formData[
                                       '~standard'
-                                  ].validate(formData)
-                                : { value: formData };
+                                  ].validate(
+                                      await adapter.input.formData(...input)
+                                  )
+                                : { value: {} };
 
                         if (parsedFormData.issues) {
                             throw new Error();
