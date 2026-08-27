@@ -7,12 +7,7 @@ import { describeParameters } from './describe-parameters';
 import { jsonSchemasFromRoute } from './json-schemas-from-route';
 
 export type GenerateOpenAPIOptions = {
-    apiMetadata: {
-        title: string;
-        version?: string;
-        description?: string;
-        servers?: OpenAPIV3.ServerObject[];
-    };
+    document: Omit<OpenAPIV3.Document, 'paths' | 'openapi'>;
     apiRoutePrefix?: string[];
     standardSchemaToJSONSchema?: (x: any) => StandardJSONSchemaV1;
     outputFile?: {
@@ -158,25 +153,15 @@ export const generateOpenAPI = (
 
         paths[path] ??= {};
 
-        paths[path]![route.metadata.route.method] = operation;
+        paths[path]![route.metadata.route.method] = {
+            ...operation,
+            ...(route.metadata.openApiMetadata ?? {})
+        };
     }
 
-    const result = {
+    const result: OpenAPIV3.Document = {
         openapi: '3.0.3',
-
-        info: {
-            title: options.apiMetadata.title,
-            version: options.apiMetadata.version ?? '1.0.0',
-
-            ...(options.apiMetadata.description && {
-                description: options.apiMetadata.description
-            })
-        },
-
-        ...(options.apiMetadata.servers && {
-            servers: options.apiMetadata.servers
-        }),
-
+        ...options.document,
         paths
     };
 

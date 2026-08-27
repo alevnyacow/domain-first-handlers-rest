@@ -213,13 +213,14 @@ const endpoints = [sumPOST, greetUserEndpoint, sumPATCH];
 
 const openAPI = async () => {
     const openAPIDocument = generateOpenAPI(endpoints, {
-        apiMetadata: { title: "Test API" },
+        document: {
+            info: { title: "Test API", version: "1.0.0" },
+        },
         outputFile: { path: "openapi.json" },
         /**
          * If your Standard Schemas are not Standard JSON Schemas
-         * out of the box, you can pass optional mapper:
-         *
-         * standardSchemaToJSONSchema?: (x: any) => StandardJSONSchemaV1;
+         * out of the box, you can pass optional mapper in
+         * `standardSchemaToJSONSchema` field
          */
     });
 };

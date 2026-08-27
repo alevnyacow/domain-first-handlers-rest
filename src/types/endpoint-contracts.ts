@@ -2,6 +2,7 @@ import type {
     StandardJSONSchemaV1,
     StandardSchemaV1
 } from '@standard-schema/spec';
+import type { OpenAPIV3 } from 'openapi-types';
 
 export type HttpMethod =
     | 'get'
@@ -35,6 +36,7 @@ export type Metadata = {
     successStatusCode?: number;
     tags?: string[];
     errorStatuses?: ErrorStatuses;
+    openApiMetadata?: Partial<OpenAPIV3.OperationObject>;
 };
 
 export type JSONSchemas = {
