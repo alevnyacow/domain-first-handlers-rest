@@ -1,3 +1,15 @@
+# [6.0.0](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v5.1.2...v6.0.0) (2026-08-27)
+
+
+### Features
+
+* all document and operation fields can be configured ([82a8508](https://github.com/alevnyacow/domain-first-handlers-rest/commit/82a8508d1a87b01bc48d4ff774b04518c817aa3d))
+
+
+### BREAKING CHANGES
+
+* new `GenerateOpenAPIOptions` contract
+
 ## [5.1.2](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v5.1.1...v5.1.2) (2026-08-26)
 
 
