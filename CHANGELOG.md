@@ -1,3 +1,10 @@
+# [6.1.0](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v6.0.0...v6.1.0) (2026-08-28)
+
+
+### Features
+
+* enriched error details ([380dffb](https://github.com/alevnyacow/domain-first-handlers-rest/commit/380dffb44e383304bd2924a0384b0ab51f2ca4c3))
+
 # [6.0.0](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v5.1.2...v6.0.0) (2026-08-27)
 
 
