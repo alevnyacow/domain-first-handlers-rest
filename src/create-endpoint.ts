@@ -247,7 +247,14 @@ const endpointGenerator =
                                 name: string;
                                 message?: string;
                                 details?: object;
-                            } = { name: response.error.name };
+                            } = {
+                                name: response.error.name,
+                                message: response.error.message,
+                                details:
+                                    'details' in response.error
+                                        ? (response.error.details as object)
+                                        : undefined
+                            };
 
                             // TODO - remove copy-paste
 
