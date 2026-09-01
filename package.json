@@ -43,7 +43,7 @@
         "test:watch": "rstest --watch"
     },
     "devDependencies": {
-        "@biomejs/biome": "2.4.15",
+        "@biomejs/biome": "2.4.2",
         "@domain-first/handlers": "^4.0.0",
         "@domain-first/handlers-mock-rest-adapter": "^1.0.1",
         "@rslib/core": "^0.23.2",
@@ -62,6 +62,7 @@
         "@domain-first/handlers": "^4.0.0"
     },
     "dependencies": {
+        "@domain-first/errors": "^4.0.4",
         "@standard-schema/spec": "^1.1.0",
         "openapi-types": "^12.1.3"
     }

@@ -1,5 +1,10 @@
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 
+export type CookiesConfiguration = Record<
+    string,
+    { httpOnly: boolean; maxAge: number }
+>;
+
 /**
  * Describes behavior of REST endpoint adapter.
  */
@@ -45,6 +50,7 @@ export type Adapter<RESTInput extends unknown[], RESTOutput> = {
                   headers: object | undefined;
                   cookies: object | undefined;
                   statusCode: number;
+                  configuration?: Partial<{ cookies: CookiesConfiguration }>;
               }
             | { success: false; error: unknown; statusCode: number },
         ...input: RESTInput

@@ -1,10 +1,12 @@
 import type { Handler } from '@domain-first/handlers';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
+import { RequestParsingError, ResponseParsingError } from './errors';
 import type {
     Adapter,
     AdapterRequestSchemas,
     AdapterResponseSchemas,
     CheckCompatibility,
+    CookiesConfiguration,
     ErrorStatuses,
     Metadata,
     RawRequestModel
@@ -37,11 +39,13 @@ type OutputTransformers<
           cookies: SafelyInferOutput<ResponseCookies>;
           headers: SafelyInferOutput<ResponseHeaders>;
       }>
-    | Promise<{
-          body: SafelyInferOutput<ResponseBody>;
-          cookies: SafelyInferOutput<ResponseCookies>;
-          headers: SafelyInferOutput<ResponseHeaders>;
-      }>;
+    | Promise<
+          RemoveUnknownAndUndefined<{
+              body: SafelyInferOutput<ResponseBody>;
+              cookies: SafelyInferOutput<ResponseCookies>;
+              headers: SafelyInferOutput<ResponseHeaders>;
+          }>
+      >;
 
 export const createEndpoint =
     <Context = undefined>(
@@ -95,24 +99,31 @@ const endpointGenerator =
                 ResponseCookies
             >;
         }) => {
-            const withDataMapping = (transformers: {
-                inputFromRequest: (
-                    payload: RemoveUnknownAndUndefined<{
-                        body: SafelyInferOutput<RequestBodySchema>;
-                        query: SafelyInferOutput<RequestQuerySchema>;
-                        formData: SafelyInferOutput<RequestFormDataSchema>;
-                        headers: SafelyInferOutput<RequestHeadersSchema>;
-                        cookies: SafelyInferOutput<RequestCookiesSchema>;
-                        context: Context;
-                    }>
-                ) => StandardSchemaV1.InferOutput<InputSchema>;
-                outputFromResponse: OutputTransformers<
-                    OutputSchema,
-                    ResponseBody,
-                    ResponseHeaders,
-                    ResponseCookies
-                >;
-            }) => {
+            const withDataMapping = (
+                transformers: {
+                    inputFromRequest: (
+                        payload: RemoveUnknownAndUndefined<{
+                            body: SafelyInferOutput<RequestBodySchema>;
+                            query: SafelyInferOutput<RequestQuerySchema>;
+                            formData: SafelyInferOutput<RequestFormDataSchema>;
+                            headers: SafelyInferOutput<RequestHeadersSchema>;
+                            cookies: SafelyInferOutput<RequestCookiesSchema>;
+                            context: Context;
+                        }>
+                    ) =>
+                        | StandardSchemaV1.InferOutput<InputSchema>
+                        | Promise<StandardSchemaV1.InferOutput<InputSchema>>;
+                    outputFromResponse: OutputTransformers<
+                        OutputSchema,
+                        ResponseBody,
+                        ResponseHeaders,
+                        ResponseCookies
+                    >;
+                },
+                configuration?: Partial<{
+                    cookies: CookiesConfiguration;
+                }>
+            ) => {
                 const requestSchemas = payload.request(handler.inputSchema);
                 const responseSchemas = payload.response?.(
                     handler.outputSchema
@@ -142,7 +153,11 @@ const endpointGenerator =
                                 : { value: queryParameters };
 
                         if (parsedQueryParameters.issues) {
-                            throw new Error();
+                            throw new RequestParsingError({
+                                issues: parsedQueryParameters.issues,
+                                source: 'query',
+                                received: queryParameters
+                            });
                         }
 
                         rawRequestData.query =
@@ -151,15 +166,24 @@ const endpointGenerator =
                         /**
                          * Body logic.
                          */
+                        const rawBody =
+                            'body' in requestSchemas
+                                ? await adapter.input.body(...input)
+                                : {};
+
                         const parsedBody =
                             'body' in requestSchemas
                                 ? await requestSchemas.body[
                                       '~standard'
-                                  ].validate(await adapter.input.body(...input))
+                                  ].validate(rawBody)
                                 : { value: {} };
 
                         if (parsedBody.issues) {
-                            throw new Error();
+                            throw new RequestParsingError({
+                                issues: parsedBody.issues,
+                                source: 'body',
+                                received: rawBody
+                            });
                         }
 
                         rawRequestData.body = parsedBody.value;
@@ -168,17 +192,23 @@ const endpointGenerator =
                          * Form Data logic.
                          */
 
+                        const rawFormData =
+                            'formData' in requestSchemas
+                                ? await adapter.input.formData(...input)
+                                : {};
                         const parsedFormData =
                             'formData' in requestSchemas
                                 ? await requestSchemas.formData[
                                       '~standard'
-                                  ].validate(
-                                      await adapter.input.formData(...input)
-                                  )
+                                  ].validate(rawFormData)
                                 : { value: {} };
 
                         if (parsedFormData.issues) {
-                            throw new Error();
+                            throw new RequestParsingError({
+                                issues: parsedFormData.issues,
+                                source: 'formData',
+                                received: rawFormData
+                            });
                         }
 
                         rawRequestData.formData =
@@ -197,7 +227,11 @@ const endpointGenerator =
                                 : { value: headers };
 
                         if (parsedHeaders.issues) {
-                            throw new Error();
+                            throw new RequestParsingError({
+                                issues: parsedHeaders.issues,
+                                source: 'headers',
+                                received: headers
+                            });
                         }
 
                         rawRequestData.headers = parsedHeaders.value as object;
@@ -215,7 +249,11 @@ const endpointGenerator =
                                 : { value: cookies };
 
                         if (parsedCookies.issues) {
-                            throw new Error();
+                            throw new RequestParsingError({
+                                issues: parsedCookies.issues,
+                                source: 'cookies',
+                                received: cookies
+                            });
                         }
 
                         rawRequestData.cookies = parsedCookies.value as object;
@@ -228,7 +266,7 @@ const endpointGenerator =
                         const output = await handler.inputSchema[
                             '~standard'
                         ].validate(
-                            transformers.inputFromRequest({
+                            await transformers.inputFromRequest({
                                 ...rawRequestData,
                                 context
                             } as any)
@@ -316,7 +354,11 @@ const endpointGenerator =
                                     '~standard'
                                 ].validate(output.body);
                                 if (result.issues) {
-                                    throw new Error();
+                                    throw new ResponseParsingError({
+                                        issues: result.issues,
+                                        source: 'body',
+                                        received: output.body
+                                    });
                                 }
                                 return result.value as any;
                             }
@@ -333,7 +375,11 @@ const endpointGenerator =
                                     '~standard'
                                 ].validate(output.cookies);
                                 if (result.issues) {
-                                    throw new Error();
+                                    throw new ResponseParsingError({
+                                        issues: result.issues,
+                                        source: 'cookies',
+                                        received: output.cookies
+                                    });
                                 }
                                 return result.value as object;
                             }
@@ -350,7 +396,11 @@ const endpointGenerator =
                                     '~standard'
                                 ].validate(output.headers);
                                 if (result.issues) {
-                                    throw new Error();
+                                    throw new ResponseParsingError({
+                                        issues: result.issues,
+                                        source: 'headers',
+                                        received: output.headers
+                                    });
                                 }
                                 return result.value as object;
                             }
@@ -364,7 +414,8 @@ const endpointGenerator =
                                 cookies: await getCookiesPart(),
                                 headers: await getHeadersPart(),
                                 success: true,
-                                statusCode: metadata?.successStatusCode ?? 200
+                                statusCode: metadata?.successStatusCode ?? 200,
+                                configuration: configuration ?? {}
                             },
                             ...input
                         );
@@ -454,7 +505,10 @@ const endpointGenerator =
                         ResponseBody,
                         ResponseHeaders,
                         ResponseCookies
-                    >
+                    >,
+                    config?: Partial<{
+                        cookies: CookiesConfiguration;
+                    }>
                 ) => {
                     const mapOutput = (
                         logic: OutputTransformers<
@@ -476,10 +530,13 @@ const endpointGenerator =
                         >({
                             request,
                             response: schemas
-                        }).withDataMapping({
-                            inputFromRequest: requestData,
-                            outputFromResponse: logic
-                        });
+                        }).withDataMapping(
+                            {
+                                inputFromRequest: requestData,
+                                outputFromResponse: logic
+                            },
+                            config ?? {}
+                        );
 
                         return result;
                     };
