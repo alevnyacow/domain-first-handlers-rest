@@ -1,3 +1,10 @@
+# [6.2.0](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v6.1.0...v6.2.0) (2026-09-01)
+
+
+### Features
+
+* errors, cookies config, async mappers in input ([d782634](https://github.com/alevnyacow/domain-first-handlers-rest/commit/d7826340901eb80356f1a67da86947897d95beb9))
+
 # [6.1.0](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v6.0.0...v6.1.0) (2026-08-28)
 
 

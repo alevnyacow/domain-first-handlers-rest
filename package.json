@@ -1,7 +1,7 @@
 {
     "name": "@domain-first/handlers-rest",
     "description": "Expose domain operations through REST without coupling your domain to HTTP",
-    "version": "6.1.0",
+    "version": "6.2.0",
     "license": "MIT",
     "type": "module",
     "exports": {
