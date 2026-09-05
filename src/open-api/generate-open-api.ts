@@ -59,17 +59,31 @@ export const generateOpenAPI = (
                                           type: 'object' as const,
                                           required: ['name'],
                                           properties: {
-                                              name: {
-                                                  type: 'string' as const
-                                              },
+                                              name: x[1].openApiTypes?.name
+                                                  ? x[1].openApiTypes.name[
+                                                        '~standard'
+                                                    ].jsonSchema.output({
+                                                        target: 'openapi-3.0'
+                                                    })
+                                                  : {
+                                                        type: 'string' as const
+                                                    },
                                               message: {
                                                   type: 'string' as const,
                                                   nullable: true
                                               },
-                                              details: {
-                                                  type: 'object' as const,
-                                                  nullable: true
-                                              }
+                                              ...(x[1].openApiTypes?.details
+                                                  ? {
+                                                        details:
+                                                            x[1].openApiTypes.details[
+                                                                '~standard'
+                                                            ].jsonSchema.output(
+                                                                {
+                                                                    target: 'openapi-3.0'
+                                                                }
+                                                            )
+                                                    }
+                                                  : {})
                                           }
                                       }
                                   }

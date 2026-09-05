@@ -25,6 +25,10 @@ export type ErrorStatuses = Record<
             message?: string;
             details?: object;
         };
+        openApiTypes?: {
+            details?: StandardJSONSchemaV1;
+            name?: StandardJSONSchemaV1;
+        };
     }
 >;
 
