@@ -1,3 +1,10 @@
+# [6.3.0](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v6.2.0...v6.3.0) (2026-09-05)
+
+
+### Features
+
+* openapi error types ([7883437](https://github.com/alevnyacow/domain-first-handlers-rest/commit/7883437cb44533071b321d97b793935f3cfe2db4))
+
 # [6.2.0](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v6.1.0...v6.2.0) (2026-09-01)
 
 
