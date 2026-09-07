@@ -1,3 +1,15 @@
+# [7.0.0](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v6.3.0...v7.0.0) (2026-09-07)
+
+
+### Features
+
+* hooks ([c0b3fea](https://github.com/alevnyacow/domain-first-handlers-rest/commit/c0b3fea616fdf3be66bdf1b8e875e7917dc90ede))
+
+
+### BREAKING CHANGES
+
+* peer dependencies, handlers of `^5.0.2`
+
 # [6.3.0](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v6.2.0...v6.3.0) (2026-09-05)
 
 
