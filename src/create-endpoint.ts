@@ -1,4 +1,4 @@
-import type { Handler } from '@domain-first/handlers';
+import type { Handler, Hook } from '@domain-first/handlers';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import { RequestParsingError, ResponseParsingError } from './errors';
 import type {
@@ -52,12 +52,21 @@ export const createEndpoint =
         config: Partial<{
             errorStatuses: ErrorStatuses;
             context: (rawRequestData: RawRequestModel) => Promise<Context>;
+            hooks: Array<Hook<unknown, unknown>>;
         }> = {}
     ) =>
     <RESTRequest extends unknown[], RESTResponse>(
-        adapter: Adapter<RESTRequest, RESTResponse>
+        adapter: Adapter<RESTRequest, RESTResponse>,
+        endpointConfig?: Partial<{
+            hooks: Array<Hook<RESTRequest, RESTResponse>>;
+        }>
     ) =>
-        endpointGenerator(adapter, config);
+        endpointGenerator(adapter, {
+            ...config,
+            hooks: (config?.hooks ?? []).concat(
+                (endpointConfig?.hooks ?? []) as Hook<unknown, unknown>[]
+            )
+        });
 
 const endpointGenerator =
     <RESTRequest extends unknown[], RESTResponse, Context = undefined>(
@@ -65,6 +74,7 @@ const endpointGenerator =
         config: Partial<{
             errorStatuses: ErrorStatuses;
             context: (rawRequestData: RawRequestModel) => Promise<Context>;
+            hooks?: Array<Hook<RESTRequest, RESTResponse>>;
         }> = {}
     ) =>
     <
@@ -136,291 +146,305 @@ const endpointGenerator =
                 const transformedREST = handler.withTransformedContract<
                     RESTRequest,
                     RESTResponse
-                >({
-                    input: async (...input) => {
-                        /**
-                         * Query parameters logic.
-                         */
-                        const queryParameters = await adapter.input.queryParams(
-                            ...input
-                        );
+                >(
+                    {
+                        input: async (...input) => {
+                            /**
+                             * Query parameters logic.
+                             */
+                            const queryParameters =
+                                await adapter.input.queryParams(...input);
 
-                        const parsedQueryParameters =
-                            'query' in requestSchemas
-                                ? await requestSchemas.query[
-                                      '~standard'
-                                  ].validate(queryParameters)
-                                : { value: queryParameters };
+                            const parsedQueryParameters =
+                                'query' in requestSchemas
+                                    ? await requestSchemas.query[
+                                          '~standard'
+                                      ].validate(queryParameters)
+                                    : { value: queryParameters };
 
-                        if (parsedQueryParameters.issues) {
-                            throw new RequestParsingError({
-                                issues: parsedQueryParameters.issues,
-                                source: 'query',
-                                received: queryParameters
-                            });
-                        }
+                            if (parsedQueryParameters.issues) {
+                                throw new RequestParsingError({
+                                    issues: parsedQueryParameters.issues,
+                                    source: 'query',
+                                    received: queryParameters
+                                });
+                            }
 
-                        rawRequestData.query =
-                            parsedQueryParameters.value as object;
+                            rawRequestData.query =
+                                parsedQueryParameters.value as object;
 
-                        /**
-                         * Body logic.
-                         */
-                        const rawBody =
-                            'body' in requestSchemas
-                                ? await adapter.input.body(...input)
-                                : {};
+                            /**
+                             * Body logic.
+                             */
+                            const rawBody =
+                                'body' in requestSchemas
+                                    ? await adapter.input.body(...input)
+                                    : {};
 
-                        const parsedBody =
-                            'body' in requestSchemas
-                                ? await requestSchemas.body[
-                                      '~standard'
-                                  ].validate(rawBody)
-                                : { value: {} };
+                            const parsedBody =
+                                'body' in requestSchemas
+                                    ? await requestSchemas.body[
+                                          '~standard'
+                                      ].validate(rawBody)
+                                    : { value: {} };
 
-                        if (parsedBody.issues) {
-                            throw new RequestParsingError({
-                                issues: parsedBody.issues,
-                                source: 'body',
-                                received: rawBody
-                            });
-                        }
+                            if (parsedBody.issues) {
+                                throw new RequestParsingError({
+                                    issues: parsedBody.issues,
+                                    source: 'body',
+                                    received: rawBody
+                                });
+                            }
 
-                        rawRequestData.body = parsedBody.value;
+                            rawRequestData.body = parsedBody.value;
 
-                        /**
-                         * Form Data logic.
-                         */
+                            /**
+                             * Form Data logic.
+                             */
 
-                        const rawFormData =
-                            'formData' in requestSchemas
-                                ? await adapter.input.formData(...input)
-                                : {};
-                        const parsedFormData =
-                            'formData' in requestSchemas
-                                ? await requestSchemas.formData[
-                                      '~standard'
-                                  ].validate(rawFormData)
-                                : { value: {} };
+                            const rawFormData =
+                                'formData' in requestSchemas
+                                    ? await adapter.input.formData(...input)
+                                    : {};
+                            const parsedFormData =
+                                'formData' in requestSchemas
+                                    ? await requestSchemas.formData[
+                                          '~standard'
+                                      ].validate(rawFormData)
+                                    : { value: {} };
 
-                        if (parsedFormData.issues) {
-                            throw new RequestParsingError({
-                                issues: parsedFormData.issues,
-                                source: 'formData',
-                                received: rawFormData
-                            });
-                        }
+                            if (parsedFormData.issues) {
+                                throw new RequestParsingError({
+                                    issues: parsedFormData.issues,
+                                    source: 'formData',
+                                    received: rawFormData
+                                });
+                            }
 
-                        rawRequestData.formData =
-                            parsedFormData.value as object;
+                            rawRequestData.formData =
+                                parsedFormData.value as object;
 
-                        /**
-                         * Headers logic.
-                         */
-                        const headers = await adapter.input.headers(...input);
+                            /**
+                             * Headers logic.
+                             */
+                            const headers = await adapter.input.headers(
+                                ...input
+                            );
 
-                        const parsedHeaders =
-                            'headers' in requestSchemas
-                                ? await requestSchemas.headers[
-                                      '~standard'
-                                  ].validate(headers)
-                                : { value: headers };
+                            const parsedHeaders =
+                                'headers' in requestSchemas
+                                    ? await requestSchemas.headers[
+                                          '~standard'
+                                      ].validate(headers)
+                                    : { value: headers };
 
-                        if (parsedHeaders.issues) {
-                            throw new RequestParsingError({
-                                issues: parsedHeaders.issues,
-                                source: 'headers',
-                                received: headers
-                            });
-                        }
+                            if (parsedHeaders.issues) {
+                                throw new RequestParsingError({
+                                    issues: parsedHeaders.issues,
+                                    source: 'headers',
+                                    received: headers
+                                });
+                            }
 
-                        rawRequestData.headers = parsedHeaders.value as object;
+                            rawRequestData.headers =
+                                parsedHeaders.value as object;
 
-                        /**
-                         * Cookies logic.
-                         */
-                        const cookies = await adapter.input.cookies(...input);
+                            /**
+                             * Cookies logic.
+                             */
+                            const cookies = await adapter.input.cookies(
+                                ...input
+                            );
 
-                        const parsedCookies =
-                            'cookies' in requestSchemas
-                                ? await requestSchemas.cookies[
-                                      '~standard'
-                                  ].validate(cookies)
-                                : { value: cookies };
+                            const parsedCookies =
+                                'cookies' in requestSchemas
+                                    ? await requestSchemas.cookies[
+                                          '~standard'
+                                      ].validate(cookies)
+                                    : { value: cookies };
 
-                        if (parsedCookies.issues) {
-                            throw new RequestParsingError({
-                                issues: parsedCookies.issues,
-                                source: 'cookies',
-                                received: cookies
-                            });
-                        }
+                            if (parsedCookies.issues) {
+                                throw new RequestParsingError({
+                                    issues: parsedCookies.issues,
+                                    source: 'cookies',
+                                    received: cookies
+                                });
+                            }
 
-                        rawRequestData.cookies = parsedCookies.value as object;
+                            rawRequestData.cookies =
+                                parsedCookies.value as object;
 
-                        /**
-                         * Output building.
-                         */
-                        const context = await config?.context?.(rawRequestData);
+                            /**
+                             * Output building.
+                             */
+                            const context =
+                                await config?.context?.(rawRequestData);
 
-                        const output = await handler.inputSchema[
-                            '~standard'
-                        ].validate(
-                            await transformers.inputFromRequest({
-                                ...rawRequestData,
-                                context
-                            } as any)
-                        );
+                            const output = await handler.inputSchema[
+                                '~standard'
+                            ].validate(
+                                await transformers.inputFromRequest({
+                                    ...rawRequestData,
+                                    context
+                                } as any)
+                            );
 
-                        if (output.issues) {
-                            throw new Error(JSON.stringify(output.issues));
-                        }
+                            if (output.issues) {
+                                throw new Error(JSON.stringify(output.issues));
+                            }
 
-                        return output.value;
-                    },
-                    output: async (response, ...input) => {
-                        if (!response.success) {
-                            let statusCode = 500;
-                            let errorResponse: {
-                                name: string;
-                                message?: string;
-                                details?: object;
-                            } = {
-                                name: response.error.name,
-                                message: response.error.message,
-                                details:
-                                    'details' in response.error
-                                        ? (response.error.details as object)
-                                        : undefined
+                            return output.value;
+                        },
+                        output: async (response, ...input) => {
+                            if (!response.success) {
+                                let statusCode = 500;
+                                let errorResponse: {
+                                    name: string;
+                                    message?: string;
+                                    details?: object;
+                                } = {
+                                    name: response.error.name,
+                                    message: response.error.message,
+                                    details:
+                                        'details' in response.error
+                                            ? (response.error.details as object)
+                                            : undefined
+                                };
+
+                                // TODO - remove copy-paste
+
+                                for (const sharedErrors of Object.entries(
+                                    config.errorStatuses ?? {}
+                                )) {
+                                    const isCurrentError =
+                                        sharedErrors[1].checks
+                                            .map((x) => x(response.error))
+                                            .some((x) => !!x);
+                                    if (isCurrentError) {
+                                        statusCode = +sharedErrors[0];
+                                        if (sharedErrors[1].toFullModel) {
+                                            errorResponse =
+                                                sharedErrors[1].toFullModel(
+                                                    response.error
+                                                );
+                                        }
+                                    }
+                                }
+
+                                for (const endpointErrors of Object.entries(
+                                    metadata.errorStatuses ?? {}
+                                )) {
+                                    const isCurrentError =
+                                        endpointErrors[1].checks
+                                            .map((x) => x(response.error))
+                                            .some((x) => !!x);
+                                    if (isCurrentError) {
+                                        statusCode = +endpointErrors[0];
+                                        if (endpointErrors[1].toFullModel) {
+                                            errorResponse =
+                                                endpointErrors[1].toFullModel(
+                                                    response.error
+                                                );
+                                        }
+                                    }
+                                }
+
+                                return await adapter.output(
+                                    {
+                                        success: false,
+                                        error: errorResponse,
+                                        statusCode
+                                    },
+                                    ...input
+                                );
+                            }
+
+                            const output: any =
+                                await transformers.outputFromResponse(
+                                    response.result
+                                );
+
+                            const getBodyPart = async () => {
+                                if (
+                                    'body' in responseSchemas &&
+                                    responseSchemas.body
+                                ) {
+                                    const result = await responseSchemas.body[
+                                        '~standard'
+                                    ].validate(output.body);
+                                    if (result.issues) {
+                                        throw new ResponseParsingError({
+                                            issues: result.issues,
+                                            source: 'body',
+                                            received: output.body
+                                        });
+                                    }
+                                    return result.value as any;
+                                }
+
+                                return undefined;
                             };
 
-                            // TODO - remove copy-paste
-
-                            for (const sharedErrors of Object.entries(
-                                config.errorStatuses ?? {}
-                            )) {
-                                const isCurrentError = sharedErrors[1].checks
-                                    .map((x) => x(response.error))
-                                    .some((x) => !!x);
-                                if (isCurrentError) {
-                                    statusCode = +sharedErrors[0];
-                                    if (sharedErrors[1].toFullModel) {
-                                        errorResponse =
-                                            sharedErrors[1].toFullModel(
-                                                response.error
-                                            );
+                            const getCookiesPart = async () => {
+                                if (
+                                    'cookies' in responseSchemas &&
+                                    responseSchemas.cookies
+                                ) {
+                                    const result =
+                                        await responseSchemas.cookies[
+                                            '~standard'
+                                        ].validate(output.cookies);
+                                    if (result.issues) {
+                                        throw new ResponseParsingError({
+                                            issues: result.issues,
+                                            source: 'cookies',
+                                            received: output.cookies
+                                        });
                                     }
+                                    return result.value as object;
                                 }
-                            }
 
-                            for (const endpointErrors of Object.entries(
-                                metadata.errorStatuses ?? {}
-                            )) {
-                                const isCurrentError = endpointErrors[1].checks
-                                    .map((x) => x(response.error))
-                                    .some((x) => !!x);
-                                if (isCurrentError) {
-                                    statusCode = +endpointErrors[0];
-                                    if (endpointErrors[1].toFullModel) {
-                                        errorResponse =
-                                            endpointErrors[1].toFullModel(
-                                                response.error
-                                            );
+                                return undefined;
+                            };
+
+                            const getHeadersPart = async () => {
+                                if (
+                                    'headers' in responseSchemas &&
+                                    responseSchemas.headers
+                                ) {
+                                    const result =
+                                        await responseSchemas.headers[
+                                            '~standard'
+                                        ].validate(output.headers);
+                                    if (result.issues) {
+                                        throw new ResponseParsingError({
+                                            issues: result.issues,
+                                            source: 'headers',
+                                            received: output.headers
+                                        });
                                     }
+                                    return result.value as object;
                                 }
-                            }
+
+                                return undefined;
+                            };
 
                             return await adapter.output(
                                 {
-                                    success: false,
-                                    error: errorResponse,
-                                    statusCode
+                                    body: await getBodyPart(),
+                                    cookies: await getCookiesPart(),
+                                    headers: await getHeadersPart(),
+                                    success: true,
+                                    statusCode:
+                                        metadata?.successStatusCode ?? 200,
+                                    configuration: configuration ?? {}
                                 },
                                 ...input
                             );
                         }
-
-                        const output: any =
-                            await transformers.outputFromResponse(
-                                response.result
-                            );
-
-                        const getBodyPart = async () => {
-                            if (
-                                'body' in responseSchemas &&
-                                responseSchemas.body
-                            ) {
-                                const result = await responseSchemas.body[
-                                    '~standard'
-                                ].validate(output.body);
-                                if (result.issues) {
-                                    throw new ResponseParsingError({
-                                        issues: result.issues,
-                                        source: 'body',
-                                        received: output.body
-                                    });
-                                }
-                                return result.value as any;
-                            }
-
-                            return undefined;
-                        };
-
-                        const getCookiesPart = async () => {
-                            if (
-                                'cookies' in responseSchemas &&
-                                responseSchemas.cookies
-                            ) {
-                                const result = await responseSchemas.cookies[
-                                    '~standard'
-                                ].validate(output.cookies);
-                                if (result.issues) {
-                                    throw new ResponseParsingError({
-                                        issues: result.issues,
-                                        source: 'cookies',
-                                        received: output.cookies
-                                    });
-                                }
-                                return result.value as object;
-                            }
-
-                            return undefined;
-                        };
-
-                        const getHeadersPart = async () => {
-                            if (
-                                'headers' in responseSchemas &&
-                                responseSchemas.headers
-                            ) {
-                                const result = await responseSchemas.headers[
-                                    '~standard'
-                                ].validate(output.headers);
-                                if (result.issues) {
-                                    throw new ResponseParsingError({
-                                        issues: result.issues,
-                                        source: 'headers',
-                                        received: output.headers
-                                    });
-                                }
-                                return result.value as object;
-                            }
-
-                            return undefined;
-                        };
-
-                        return await adapter.output(
-                            {
-                                body: await getBodyPart(),
-                                cookies: await getCookiesPart(),
-                                headers: await getHeadersPart(),
-                                success: true,
-                                statusCode: metadata?.successStatusCode ?? 200,
-                                configuration: configuration ?? {}
-                            },
-                            ...input
-                        );
-                    }
-                });
+                    },
+                    { transformedHandler: config?.hooks ?? [] }
+                );
 
                 return Object.assign(transformedREST, {
                     _api_schemas: {

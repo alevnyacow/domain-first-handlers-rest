@@ -44,8 +44,7 @@
     },
     "devDependencies": {
         "@biomejs/biome": "2.4.2",
-        "@domain-first/handlers": "^4.0.0",
-        "@domain-first/handlers-mock-rest-adapter": "^1.0.1",
+        "@domain-first/handlers": "^5.0.2",
         "@rslib/core": "^0.23.2",
         "@rstest/adapter-rslib": "^0.10.6",
         "@rstest/core": "^0.10.6",
@@ -59,7 +58,7 @@
         "zod": "^4.4.3"
     },
     "peerDependencies": {
-        "@domain-first/handlers": "^4.0.0"
+        "@domain-first/handlers": "^5.0.2"
     },
     "dependencies": {
         "@domain-first/errors": "^4.0.4",

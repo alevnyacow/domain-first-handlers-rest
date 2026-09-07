@@ -1,8 +1,8 @@
 import { defineHandler } from '@domain-first/handlers';
-import mockAdapter from '@domain-first/handlers-mock-rest-adapter';
 import { describe, expect, test } from '@rstest/core';
 import z from 'zod';
 import { createEndpoint, type EndpointGenerator } from './create-endpoint';
+import { mockAdapter } from './mock-adapter';
 import type { EndpointContract } from './types';
 
 const endpoint = createEndpoint({
@@ -23,7 +23,9 @@ describe('object adapter', async () => {
     const sum = defineHandler({
         inputSchema: z.object({ a: z.number(), b: z.number() }),
         outputSchema: z.number(),
-        handler: async ({ a, b }) => a + b
+        handler: async ({ a, b }) => {
+            return a + b;
+        }
     });
 
     describe('params in query', async () => {
@@ -57,11 +59,6 @@ describe('object adapter', async () => {
         };
 
         aa(mockEndpoint);
-
-        // generateOpenAPI([allInQuery], {
-        //     apiMetadata: { title: 'fasf' },
-        //     outputFile: { path: 'openapi.json' }
-        // });
 
         type CONTRACT = EndpointContract<typeof allInQuery>;
         type Check<
