@@ -1,227 +1,129 @@
 <p align="center">
-    <picture>
-        <img src='https://raw.githubusercontent.com/alevnyacow/domain-first-handlers-rest/refs/heads/main/logo.svg?sanitize=true'>
-    </picture>
+    <img src="https://raw.githubusercontent.com/alevnyacow/domain-first-handlers-rest/refs/heads/main/logo.svg?sanitize=true" alt="Domain First Handlers REST">
+</p>
+
+<h1 align="center">Your domain logic. A typed REST boundary.</h1>
+
+<p align="center">
+    One handler → any number of validated, fully typed REST endpoints → OpenAPI for free.
 </p>
 
 <p align="center">
-    Expose domain operations through REST without coupling your domain to HTTP.
+    <a href="https://www.npmjs.com/package/@domain-first/handlers-rest"><img src="https://img.shields.io/npm/v/%40domain-first%2Fhandlers-rest" alt="npm version"></a>
+    <img src="https://img.shields.io/badge/TypeScript-ready-3178C6?logo=typescript&amp;logoColor=white" alt="TypeScript ready">
+    <a href="./LICENSE"><img src="https://img.shields.io/npm/l/%40domain-first%2Fhandlers-rest" alt="MIT license"></a>
 </p>
 
-<p align="center">
-  <img src="https://img.shields.io/npm/v/%40domain-first%2Fhandlers-rest" alt="version">
-  <img src="https://img.shields.io/badge/TypeScript-ready-3178C6?logo=typescript&logoColor=white?style=for-the-badge" alt="size">
-  <img src="https://img.shields.io/badge/semantic--release-angular-e10079?logo=semantic-release" alt="semver">
-  <img src="https://img.shields.io/npm/l/%40domain-first%2Fhandlers-rest" alt="license">
-</p>
+Your business logic shouldn't know what an HTTP request is. Write it once as a [`@domain-first/handlers`](https://www.npmjs.com/package/@domain-first/handlers) handler, then describe how HTTP reaches it — and get:
 
-# Requirements
+- ✅ **Runtime validation** of body, query, headers, cookies and form data
+- 🧠 **Inferred types** in every mapper — no hand-written request/response interfaces
+- 📄 **OpenAPI 3.0.3** generated from the endpoints you actually ship
+- 🧪 **Tests without a server** via the built-in `mockAdapter`
 
-- [@domain-first/handlers](https://www.npmjs.com/package/@domain-first/handlers) (^4.0.0)
+## Try it in 30 seconds
 
-# About
-
-The API is intentionally small and fluent: describe transport → map to domain → describe response → map back. Describing a response is an optional step - by default all response go to the body, so the happy path stays minimal. Everything is strongly-typed. TypeScript checks the contract at compile time.
-
-# Adapters
-
-- [Adapter + App router endpoints for Next.js](https://www.npmjs.com/package/@domain-first/handlers-next)
-- [Mock Adapter](https://www.npmjs.com/package/@domain-first/handlers-mock-rest-adapter)
-
-# Examples
-
-## Quick Start
+```sh
+npm install @domain-first/handlers-rest @domain-first/handlers zod
+```
 
 ```ts
-import { createEndpoint } from "@domain-first/handlers-rest";
 import { defineHandler } from "@domain-first/handlers";
-/**
- * Any adapter can be used.
- */
-import nextAdapter from "./adapters/next";
-/**
- * Any Standard Schema compatible library fits.
- */
+import { createEndpoint, mockAdapter } from "@domain-first/handlers-rest";
 import z from "zod";
 
+// Pure domain logic — no HTTP in sight.
 const sum = defineHandler({
-    inputSchema: z.object({
-        a: z.number(),
-        b: z.number(),
-    }),
+    inputSchema: z.object({ a: z.number(), b: z.number() }),
     outputSchema: z.number(),
     handler: async ({ a, b }) => a + b,
 });
 
-const endpoint = createEndpoint();
-const nextEndpoint = endpoint(nextAdapter);
+const endpoint = createEndpoint()(mockAdapter);
 
-const sumPOST = nextEndpoint(sum, {
-    route: { method: "post", path: ["sum"] },
-})
-    /**
-     * Describe input schemas.
-     */
-    .input((schema) => {
-        return {
-            body: schema,
-        };
-    })
-    /**
-     * Describe input mapping.
-     */
-    .mapInput((input) => ({
-        a: input.body.a,
-        b: input.body.b,
-    }));
+const sumPOST = endpoint(sum, { route: { method: "post", path: ["sum"] } })
+    .input((schema) => ({ body: schema })) // reuse the handler's schema
+    .mapInput(({ body }) => body);
 
-export const POST = sumPOST;
-
-/**
- * POST /sum
- *
- * REQUEST BODY: { a: 10, b: 30 }
- * RESPONSE BODY: 40
- */
+const res = await sumPOST({ body: { a: 10, b: 30 } });
+console.log(res.statusCode, res.body); // 200 40
 ```
 
-## Endpoint contracts
+No server, no setup — just run it. Swap `mockAdapter` for a real one when you're ready.
 
-To obtain an endpoint contract, use `EndpointContract` generic:
+## Same handler, different contracts
+
+Expose it via query string and wrap the response — the handler stays untouched:
+
+```ts
+const sumGET = endpoint(sum, { route: { method: "get", path: ["sum"] } })
+    .input(() => ({
+        query: z.object({ a: z.string(), b: z.string() }),
+    }))
+    .mapInput(({ query }) => ({ a: Number(query.a), b: Number(query.b) }))
+    .output((schema) => ({ body: z.object({ result: schema }) }))
+    .mapOutput((result) => ({ body: { result } }));
+
+await sumGET({ queryParams: { a: "10", b: "30" } }); // body: { result: 40 }
+```
+
+Need the types elsewhere (e.g. on the client)?
 
 ```ts
 import type { EndpointContract } from "@domain-first/handlers-rest";
 
-type SumPOSTContract = EndpointContract<typeof sumPOST>;
-
-/**
-type SumPOSTContract = {
-    request: {
-        body: { a: number; b: number; };
-    };
-    response: {
-        body: number;
-    };
-}
- */
+type SumContract = EndpointContract<typeof sumPOST>;
+// { request: { body: { a: number; b: number } }; response: { body: number } }
 ```
 
-## Context and error handling
+## Errors, context, hooks
+
+Configure once, reuse everywhere:
 
 ```ts
-import {
-    type RawRequestModel,
-    createEndpoint,
-} from "@domain-first/handlers-rest";
-import { defineHandler } from "@domain-first/handlers";
-import z from "zod";
-import adapter from "./adapter";
+import { RequestParsingError } from "@domain-first/handlers-rest";
 
-class UnauthorizedAccessError extends Error {}
-
-/**
- * Context logic.
- */
-const authContext = async (rawRequest: RawRequestModel) => {
-    const bearerHeader = rawRequest.headers?.Authorization ?? "";
-
-    if (!bearerHeader) {
-        throw new UnauthorizedAccessError();
-    }
-
-    const token = bearerHeader.split(" ").pop();
-
-    // some decoding logic
-    const { userId } = await decodeToken(token);
-
-    return { userId };
-};
-
-/**
- * Adding context in endpoint generator.
- */
-const endpointWithAuth = createEndpoint({
-    context: async (rawRequest) => {
-        const auth = await authContext(rawRequest);
-
-        return { auth };
-    },
+const appEndpoint = createEndpoint({
     errorStatuses: {
-        401: {
-            checks: [(x) => x instanceof UnauthorizedAccessError],
-            description: "User is not logged in",
-        },
+        400: { checks: [(e) => e instanceof RequestParsingError], description: "Invalid request" },
     },
-});
-
-const nextEndpointWithAuth = endpointWithAuth(nextAdapter);
-
-const greetUser = defineHandler({
-    input: z.object({ authorId: z.string(), name: z.string() }),
-    output: z.string(),
-    handler: async ({ authorId, name }) => {
-        return `Hello, ${name}! (from ${authorId})`;
-    },
-});
-
-const greetUserEndpoint = nextEndpointWithAuth(greetUser, {
-    route: { method: "get", path: ["users", "greet"] },
-})
-    .input((inputSchema) => ({
-        query: inputSchema.pick({ name: true }),
-    }))
-    .mapInput((input) => {
-        return {
-            name: input.query.name,
-            // strongly-typed
-            authorId: input.context.auth.userId,
-        };
-    });
+    context: async () => ({ requestedAt: Date.now() }), // available as `context` in .mapInput()
+    hooks: [/* Hook API from @domain-first/handlers */],
+})(mockAdapter);
 ```
 
-## Defining custom output
+Unmatched errors become `500`. `errorStatuses` can also be set per endpoint; adapter-specific hooks go in the second argument: `createEndpoint()(adapter, { hooks })`.
 
-```ts
-const sumPATCH = nextEndpoint(sum, {
-    route: { method: "patch", path: ["sum"] },
-})
-    .input((schema) => ({
-        body: schema,
-    }))
-    .mapInput((input) => ({
-        a: input.body.a,
-        b: input.body.b,
-    }))
-    .output((schema) => ({
-        body: z.object({
-            result: schema,
-        }),
-    }))
-    .mapOutput((output) => ({
-        body: { result: output },
-    }));
-
-export const PATCH = sumPATCH;
-```
-
-## OpenAPI generation
+## OpenAPI from the same code
 
 ```ts
 import { generateOpenAPI } from "@domain-first/handlers-rest";
 
-const endpoints = [sumPOST, greetUserEndpoint, sumPATCH];
-
-const openAPI = async () => {
-    const openAPIDocument = generateOpenAPI(endpoints, {
-        document: {
-            info: { title: "Test API", version: "1.0.0" },
-        },
-        outputFile: { path: "openapi.json" },
-        /**
-         * If your Standard Schemas are not Standard JSON Schemas
-         * out of the box, you can pass optional mapper in
-         * `standardSchemaToJSONSchema` field
-         */
-    });
-};
+generateOpenAPI([sumPOST, sumGET], {
+    document: { info: { title: "Calculator API", version: "1.0.0" } },
+    apiRoutePrefix: ["", "api"], // → /api/sum
+    outputFile: { path: "openapi.json" },
+});
 ```
+
+Add `summary`, `description`, `tags` to endpoint metadata, or override anything with `openApiMetadata`. Schemas need Standard JSON Schema support (Zod 4 has it) — otherwise pass `standardSchemaToJSONSchema`.
+
+## Adapters
+
+| Adapter | For |
+| --- | --- |
+| [`@domain-first/handlers-next`](https://www.npmjs.com/package/@domain-first/handlers-next) | Next.js App Router |
+| `mockAdapter` (built in) | Tests and playgrounds |
+| Your own `Adapter<Request, Response>` | Any other framework — implement input readers and one output function |
+
+## Good to know
+
+- Request fields: `body`, `query`, `formData`, `headers`, `cookies`. Response fields: `body`, `headers`, `cookies`.
+- Query schemas must produce strings — convert in `.mapInput()`.
+- `successStatusCode` in metadata changes the default `200`.
+- OpenAPI doesn't yet cover form-data bodies or response headers/cookies.
+- Requires `@domain-first/handlers` **^5.0.2**. Ships ESM + CJS with types.
+
+## License
+
+[MIT](./LICENSE)
