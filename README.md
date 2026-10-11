@@ -101,7 +101,7 @@ import { generateOpenAPI } from "@domain-first/handlers-rest";
 
 generateOpenAPI([sumPOST, sumGET], {
     document: { info: { title: "Calculator API", version: "1.0.0" } },
-    apiRoutePrefix: ["", "api"], // → /api/sum
+    apiRoutePrefix: ["api"], // → /api/sum
     outputFile: { path: "openapi.json" },
 });
 ```

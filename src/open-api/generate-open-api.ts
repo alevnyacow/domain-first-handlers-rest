@@ -8,6 +8,10 @@ import { jsonSchemasFromRoute } from './json-schemas-from-route';
 
 export type GenerateOpenAPIOptions = {
     document: Omit<OpenAPIV3.Document, 'paths' | 'openapi'>;
+    /**
+     * Segments every route is served under, e.g. `['api']` or `['api', 'v1']`.
+     * Slashes are optional: `['/api/v1']` works the same.
+     */
     apiRoutePrefix?: string[];
     standardSchemaToJSONSchema?: (x: any) => StandardJSONSchemaV1;
     outputFile?: {
@@ -15,6 +19,15 @@ export type GenerateOpenAPIOptions = {
         format?: (x: OpenAPIV3.Document) => string;
     };
 };
+
+/**
+ * OpenAPI paths must start with "/"; route segments come without slashes.
+ */
+const toOpenAPIPath = (segments: string[]) =>
+    `/${segments
+        .flatMap((segment) => segment.split('/'))
+        .filter((segment) => !!segment)
+        .join('/')}`;
 
 export const generateOpenAPI = (
     routes: { metadata: Metadata; _api_schemas: RawAPISchemas }[],
@@ -156,10 +169,10 @@ export const generateOpenAPI = (
             };
         }
 
-        const path = [
+        const path = toOpenAPIPath([
             ...(options.apiRoutePrefix ?? []),
             ...route.metadata.route.path
-        ].join('/');
+        ]);
 
         operation.tags = route.metadata.tags
             ? route.metadata.tags
