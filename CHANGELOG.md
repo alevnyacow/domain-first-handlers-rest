@@ -1,3 +1,10 @@
+## [7.0.2](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v7.0.1...v7.0.2) (2026-10-11)
+
+
+### Bug Fixes
+
+* open api path now starts with '/' ([467dea8](https://github.com/alevnyacow/domain-first-handlers-rest/commit/467dea8111c13e7a73eb1d121df2d45e7f4fda87))
+
 ## [7.0.1](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v7.0.0...v7.0.1) (2026-10-02)
 
 
