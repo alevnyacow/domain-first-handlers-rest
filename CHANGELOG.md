@@ -1,3 +1,15 @@
+# [8.0.0](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v7.0.2...v8.0.0) (2026-10-12)
+
+
+### Features
+
+* path parameters ([28f51cd](https://github.com/alevnyacow/domain-first-handlers-rest/commit/28f51cd9ca8f4f0e5575fe44a8f45f63e41ae6f3))
+
+
+### BREAKING CHANGES
+
+* new contracts, new adapter
+
 ## [7.0.2](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v7.0.1...v7.0.2) (2026-10-11)
 
 
