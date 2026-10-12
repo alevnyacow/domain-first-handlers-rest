@@ -5,9 +5,18 @@ export const Errors = errorNamespace('@domain-first/handlers-rest');
 
 export const RequestParsingError = Errors.define<{
     issues: Readonly<StandardSchemaV1.Issue[]>;
-    source: 'query' | 'headers' | 'cookies' | 'body' | 'formData';
+    source: 'query' | 'params' | 'headers' | 'cookies' | 'body' | 'formData';
     received: unknown;
 }>('request-parsing');
+
+/**
+ * `.mapInput()` returned something the handler's input schema rejects,
+ * e.g. `Number('abc')` for a numeric field.
+ */
+export const InputMappingError = Errors.define<{
+    issues: Readonly<StandardSchemaV1.Issue[]>;
+    received: unknown;
+}>('input-mapping');
 
 export const ResponseParsingError = Errors.define<{
     issues: Readonly<StandardSchemaV1.Issue[]>;

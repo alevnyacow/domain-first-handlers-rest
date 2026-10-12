@@ -3,6 +3,7 @@ import type {
     StandardSchemaV1
 } from '@standard-schema/spec';
 import type { OpenAPIV3 } from 'openapi-types';
+import type { PathParamName, PathParams } from '../path-params';
 
 export type HttpMethod =
     | 'get'
@@ -26,14 +27,18 @@ export type ErrorStatuses = Record<
             details?: object;
         };
         openApiTypes?: {
-            details?: StandardJSONSchemaV1;
-            name?: StandardJSONSchemaV1;
+            details?: StandardSchemaV1;
+            name?: StandardSchemaV1;
         };
     }
 >;
 
-export type Metadata = {
-    route: { method: HttpMethod; path: string[] };
+export type Metadata<Path extends readonly string[] = readonly string[]> = {
+    /**
+     * Segments prefixed with `:` are path parameters,
+     * e.g. `['users', ':userId']`.
+     */
+    route: { method: HttpMethod; path: Path };
     description?: string;
     successResponseDescription?: string;
     summary?: string;
@@ -56,16 +61,16 @@ export type JSONSchemas = {
 
 export type RawAPISchemas = {
     requestSchemas: {
-        query?: unknown;
-        body?: unknown;
-        cookies?: unknown;
-        formData?: unknown;
-        headers?: unknown;
+        query?: StandardSchemaV1;
+        body?: StandardSchemaV1;
+        cookies?: StandardSchemaV1;
+        formData?: StandardSchemaV1;
+        headers?: StandardSchemaV1;
     };
     responseSchemas: {
-        body?: unknown;
-        headers?: unknown;
-        cookies?: unknown;
+        body?: StandardSchemaV1;
+        headers?: StandardSchemaV1;
+        cookies?: StandardSchemaV1;
     };
 };
 
@@ -75,6 +80,14 @@ export type InferRequestQuery<T> = T extends {
     };
 }
     ? { query: StandardSchemaV1.InferOutput<Query> }
+    : {};
+
+export type InferRequestParams<T> = T extends {
+    metadata: { route: { path: infer Path extends readonly string[] } };
+}
+    ? [PathParamName<Path>] extends [never]
+        ? {}
+        : { params: PathParams<Path> }
     : {};
 
 export type InferRequestBody<T> = T extends {
@@ -90,7 +103,7 @@ export type InferRequestCookies<T> = T extends {
         requestSchemas: { cookies: infer Cookies extends StandardSchemaV1 };
     };
 }
-    ? { cookie: StandardSchemaV1.InferOutput<Cookies> }
+    ? { cookies: StandardSchemaV1.InferOutput<Cookies> }
     : {};
 
 export type InferRequestFormData<T> = T extends {
@@ -135,6 +148,7 @@ export type InferResponseCookies<T> = T extends {
 
 export type EndpointContract<T extends { _api_schemas: object }> = {
     request: InferRequestQuery<T> &
+        InferRequestParams<T> &
         InferRequestBody<T> &
         InferRequestCookies<T> &
         InferRequestFormData<T> &
@@ -146,6 +160,7 @@ export type EndpointContract<T extends { _api_schemas: object }> = {
 
 export type RawRequestModel = {
     query?: object;
+    params?: object;
     body?: unknown;
     cookies?: object;
     formData?: object;

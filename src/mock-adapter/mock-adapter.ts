@@ -2,6 +2,7 @@ import type { Adapter } from '../types';
 
 export type MockRestAdapterInput = {
     queryParams?: object;
+    pathParams?: object;
     headers?: object;
     body?: any;
     formData?: object;
@@ -25,7 +26,8 @@ export const mockAdapter: Adapter<
         cookies: async (x) => x.cookies || {},
         formData: async (x) => x.formData || {},
         headers: async (x) => x.headers || {},
-        queryParams: async (x) => x.queryParams || {}
+        queryParams: async (x) => x.queryParams || {},
+        pathParams: async (x) => x.pathParams || {}
     },
     output: (x) => {
         if (x.success) {

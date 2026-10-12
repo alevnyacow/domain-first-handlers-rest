@@ -1,10 +1,15 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import type { StandardJSONSchemaV1 } from '@standard-schema/spec';
 import type { OpenAPIV3 } from 'openapi-types';
+import { pathParamNames } from '../path-params';
 import type { Metadata, RawAPISchemas } from '../types';
 import { describeParameters } from './describe-parameters';
 import { jsonSchemasFromRoute } from './json-schemas-from-route';
+import {
+    defaultStandardSchemaToJSONSchema,
+    type StandardSchemaToJSONSchema,
+    toOpenAPISchema
+} from './to-openapi-schema';
 
 export type GenerateOpenAPIOptions = {
     document: Omit<OpenAPIV3.Document, 'paths' | 'openapi'>;
@@ -13,7 +18,11 @@ export type GenerateOpenAPIOptions = {
      * Slashes are optional: `['/api/v1']` works the same.
      */
     apiRoutePrefix?: string[];
-    standardSchemaToJSONSchema?: (x: any) => StandardJSONSchemaV1;
+    /**
+     * Converts schemas of libraries without Standard JSON Schema support.
+     * Every schema goes through it, by default it is used as is.
+     */
+    standardSchemaToJSONSchema?: StandardSchemaToJSONSchema;
     outputFile?: {
         path: string;
         format?: (x: OpenAPIV3.Document) => string;
@@ -21,12 +30,16 @@ export type GenerateOpenAPIOptions = {
 };
 
 /**
- * OpenAPI paths must start with "/"; route segments come without slashes.
+ * OpenAPI paths must start with "/" and use `{name}` for path parameters;
+ * route segments come without slashes and use `:name`.
  */
-const toOpenAPIPath = (segments: string[]) =>
+const toOpenAPIPath = (segments: readonly string[]) =>
     `/${segments
         .flatMap((segment) => segment.split('/'))
         .filter((segment) => !!segment)
+        .map((segment) =>
+            segment.startsWith(':') ? `{${segment.slice(1)}}` : segment
+        )
         .join('/')}`;
 
 export const generateOpenAPI = (
@@ -34,10 +47,12 @@ export const generateOpenAPI = (
     options: GenerateOpenAPIOptions
 ): OpenAPIV3.Document => {
     const paths: OpenAPIV3.PathsObject = {};
+    const toJSONSchema =
+        options.standardSchemaToJSONSchema ?? defaultStandardSchemaToJSONSchema;
 
     for (const route of routes) {
         const jsonSchemas = jsonSchemasFromRoute(route, {
-            jsonSchemaObtainer: options.standardSchemaToJSONSchema ?? ((x) => x)
+            jsonSchemaObtainer: toJSONSchema
         });
 
         const successBodyResponse = jsonSchemas.responseBody
@@ -48,11 +63,10 @@ export const generateOpenAPI = (
 
                       content: {
                           'application/json': {
-                              schema: jsonSchemas.responseBody[
-                                  '~standard'
-                              ].jsonSchema.output({
-                                  target: 'openapi-3.0'
-                              })
+                              schema: toOpenAPISchema(
+                                  jsonSchemas.responseBody,
+                                  'output'
+                              )
                           }
                       }
                   }
@@ -73,11 +87,13 @@ export const generateOpenAPI = (
                                           required: ['name'],
                                           properties: {
                                               name: x[1].openApiTypes?.name
-                                                  ? x[1].openApiTypes.name[
-                                                        '~standard'
-                                                    ].jsonSchema.output({
-                                                        target: 'openapi-3.0'
-                                                    })
+                                                  ? toOpenAPISchema(
+                                                        toJSONSchema(
+                                                            x[1].openApiTypes
+                                                                .name
+                                                        ),
+                                                        'output'
+                                                    )
                                                   : {
                                                         type: 'string' as const
                                                     },
@@ -88,12 +104,13 @@ export const generateOpenAPI = (
                                               ...(x[1].openApiTypes?.details
                                                   ? {
                                                         details:
-                                                            x[1].openApiTypes.details[
-                                                                '~standard'
-                                                            ].jsonSchema.output(
-                                                                {
-                                                                    target: 'openapi-3.0'
-                                                                }
+                                                            toOpenAPISchema(
+                                                                toJSONSchema(
+                                                                    x[1]
+                                                                        .openApiTypes
+                                                                        .details
+                                                                ),
+                                                                'output'
                                                             )
                                                     }
                                                   : {})
@@ -123,31 +140,32 @@ export const generateOpenAPI = (
         };
 
         if (jsonSchemas.requestQuery) {
-            const schema = jsonSchemas.requestQuery[
-                '~standard'
-            ].jsonSchema.input({
-                target: 'openapi-3.0'
-            });
+            const schema = toOpenAPISchema(jsonSchemas.requestQuery, 'input');
             operation.parameters = describeParameters(schema, 'query');
         }
 
+        const routeParamNames = pathParamNames(route.metadata.route.path);
+
+        if (routeParamNames.length > 0) {
+            operation.parameters = (operation.parameters ?? []).concat(
+                routeParamNames.map((name) => ({
+                    name,
+                    in: 'path',
+                    required: true,
+                    schema: { type: 'string' }
+                }))
+            );
+        }
+
         if (jsonSchemas.requestCookies) {
-            const schema = jsonSchemas.requestCookies[
-                '~standard'
-            ].jsonSchema.input({
-                target: 'openapi-3.0'
-            });
+            const schema = toOpenAPISchema(jsonSchemas.requestCookies, 'input');
             operation.parameters = (operation.parameters ?? []).concat(
                 describeParameters(schema, 'cookie')
             );
         }
 
         if (jsonSchemas.requestHeaders) {
-            const schema = jsonSchemas.requestHeaders[
-                '~standard'
-            ].jsonSchema.input({
-                target: 'openapi-3.0'
-            });
+            const schema = toOpenAPISchema(jsonSchemas.requestHeaders, 'input');
             operation.parameters = (operation.parameters ?? []).concat(
                 describeParameters(schema, 'header')
             );
@@ -159,11 +177,10 @@ export const generateOpenAPI = (
 
                 content: {
                     'application/json': {
-                        schema: jsonSchemas.requestBody[
-                            '~standard'
-                        ].jsonSchema.input({
-                            target: 'openapi-3.0'
-                        })
+                        schema: toOpenAPISchema(
+                            jsonSchemas.requestBody,
+                            'input'
+                        )
                     }
                 }
             };

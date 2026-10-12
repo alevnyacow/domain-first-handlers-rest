@@ -18,6 +18,11 @@ export type Adapter<RESTInput extends unknown[], RESTOutput> = {
          */
         queryParams: (...input: RESTInput) => object | Promise<object>;
         /**
+         * Path parameters obtaining. Required for routes with
+         * parameter segments (e.g. `':id'`).
+         */
+        pathParams?: (...input: RESTInput) => object | Promise<object>;
+        /**
          * Body obtaining.
          */
         body: (...input: RESTInput) => object | Promise<object>;
@@ -57,28 +62,24 @@ export type Adapter<RESTInput extends unknown[], RESTOutput> = {
     ) => RESTOutput | Promise<RESTOutput>;
 };
 
-export type AdapterRequestSchemas<
-    InputSchema extends StandardSchemaV1,
-    QuerySchema extends StandardSchemaV1 | undefined,
-    BodySchema extends StandardSchemaV1 | undefined,
-    FormDataSchema extends StandardSchemaV1 | undefined,
-    HeadersSchema extends StandardSchemaV1 | undefined,
-    CookiesSchema extends StandardSchemaV1 | undefined
-> = (
-    inputSchema: InputSchema
-) => (QuerySchema extends undefined ? {} : { query: QuerySchema }) &
-    (BodySchema extends undefined ? {} : { body: BodySchema }) &
-    (FormDataSchema extends undefined ? {} : { formData: FormDataSchema }) &
-    (CookiesSchema extends undefined ? {} : { cookies: CookiesSchema }) &
-    (HeadersSchema extends undefined ? {} : { headers: HeadersSchema });
+export type RequestSource =
+    | 'query'
+    | 'params'
+    | 'body'
+    | 'formData'
+    | 'headers'
+    | 'cookies';
 
-export type AdapterResponseSchemas<
-    OutputSchema extends StandardSchemaV1,
-    Body extends StandardSchemaV1 | undefined,
-    Headers extends StandardSchemaV1 | undefined,
-    Cookies extends StandardSchemaV1 | undefined
-> = (
-    outputSchema: OutputSchema
-) => (Body extends undefined ? {} : { body: Body }) &
-    (Headers extends undefined ? {} : { headers: Headers }) &
-    (Cookies extends undefined ? {} : { cookies: Cookies });
+export type ResponseTarget = 'body' | 'headers' | 'cookies';
+
+/**
+ * Request parts described with schemas. Path parameters are not among them:
+ * their names come from the route and their values are always strings.
+ */
+export type RequestSchemaSource = Exclude<RequestSource, 'params'>;
+
+export type RequestSchemas = {
+    [Source in RequestSchemaSource]?: StandardSchemaV1;
+};
+
+export type ResponseSchemas = { [Target in ResponseTarget]?: StandardSchemaV1 };

@@ -25,7 +25,7 @@ export const describeParameters = (
     if (schema.additionalProperties && schema.required) {
         return schema.required.map((name: string) => ({
             name,
-            in: 'query',
+            in: target,
             required: true,
             schema: schema.additionalProperties as OpenAPIV3.SchemaObject
         }));
