@@ -1,3 +1,10 @@
+## [8.0.1](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v8.0.0...v8.0.1) (2026-10-12)
+
+
+### Bug Fixes
+
+* readme improvements ([4ee5a5d](https://github.com/alevnyacow/domain-first-handlers-rest/commit/4ee5a5d8c68b3c09c4d3bfeaac3c21436335c9fb))
+
 # [8.0.0](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v7.0.2...v8.0.0) (2026-10-12)
 
 
