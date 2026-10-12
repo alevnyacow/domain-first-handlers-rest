@@ -1,3 +1,10 @@
+## [8.0.2](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v8.0.1...v8.0.2) (2026-10-12)
+
+
+### Bug Fixes
+
+* removed unused tech exports ([91440db](https://github.com/alevnyacow/domain-first-handlers-rest/commit/91440dbac475490a210d0c206d75adc0160bdadb))
+
 ## [8.0.1](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v8.0.0...v8.0.1) (2026-10-12)
 
 
