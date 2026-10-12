@@ -130,7 +130,7 @@ endpoint(sum, { route: { method: "get", path: ["sum"] } })
 | `INVALID QUERY PARAMETERS SCHEMA` | a `query` schema produces something other than `string` (optional fields are fine: `string \| undefined`) |
 | `INVALID HEADERS SCHEMA` | same for `headers` |
 | `INVALID COOKIES SCHEMA` | same for `cookies` |
-| `UNKNOWN REQUEST SOURCES` | a key other than `query`, `body`, `formData`, `headers`, `cookies` — including `params`, which come from the route |
+| `UNKNOWN REQUEST SOURCES` | a key other than `query`, `body`, `formData`, `headers`, `cookies` — including `params`, which come from the route. If it's the only key, TypeScript reports instead that the object has no properties in common with `RequestSchemas` |
 
 Mappers are type-checked too: `.mapInput()` must return the handler's input, `.mapOutput()` must return every declared response part.
 
@@ -205,12 +205,21 @@ generateOpenAPI([sumPOST, sumGET, getUser], {
 - Add `summary`, `description`, `tags`, `successResponseDescription` to endpoint metadata, or override anything with `openApiMetadata`. Tags default to the first path segment.
 - Endpoints sharing a path are merged under it.
 
-**Schemas from any library.** Every schema goes through `standardSchemaToJSONSchema` before it reaches the document. By default it uses the schema as is, which is enough for libraries implementing Standard JSON Schema (Zod 4). For others (e.g. Valibot), pass a converter — otherwise generation throws an error naming the library:
+**Schemas from any library.** Every schema goes through `standardSchemaToJSONSchema` before it reaches the document. It must return a [Standard JSON Schema](https://standardschema.dev) — an object with `~standard.jsonSchema.input()` and `.output()`. By default the schema is used as is, which is enough for libraries implementing Standard JSON Schema (Zod 4). For others (e.g. Valibot), pass a converter — otherwise generation throws an error naming the library. A plain JSON Schema converter just needs wrapping:
 
 ```ts
 generateOpenAPI(endpoints, {
     document,
-    standardSchemaToJSONSchema: (schema) => toStandardJsonSchema(schema), // your library's converter
+    standardSchemaToJSONSchema: (schema) => ({
+        "~standard": {
+            version: 1,
+            vendor: schema["~standard"].vendor,
+            jsonSchema: {
+                input: () => toJsonSchema(schema), // your library's JSON Schema converter
+                output: () => toJsonSchema(schema),
+            },
+        },
+    }),
 });
 ```
 
@@ -270,6 +279,8 @@ await getUser({
 - **Path parameters** — `:segments` in routes, typed `params` in `.mapInput()` and contracts, `input.pathParams` in adapters (optional) and `pathParams` in `mockAdapter`.
 - **`InputMappingError`** replaces the plain `Error` thrown when `.mapInput()` returns an invalid handler input, so it can get its own status.
 - **Stricter header and cookie schemas.** Like query, they must produce strings, and fields that produce something else are errors even when optional (`z.number().optional()` used to pass for query). Convert values in `.mapInput()`.
+- **Compile-time errors of `.input()`** list the offending keys in `INVALID`; `CURRENT` now shows the schema's output type instead of its input type. Unknown request parts (e.g. a typo like `qury`) are rejected with `UNKNOWN REQUEST SOURCES`.
+- **Optional fields are kept in mapper types.** Request and response parts whose type allows `undefined` (e.g. `z.string().optional()` as a whole part) used to disappear from `.mapInput()` arguments and `.mapOutput()` results; now they are there.
 - **`EndpointContract`** uses `cookies` instead of `cookie` for request cookies and includes `params`.
 - **`ErrorStatuses.openApiTypes`** takes any Standard Schema; **`standardSchemaToJSONSchema`** is typed `(schema: StandardSchemaV1) => StandardJSONSchemaV1` and also converts error schemas.
 - **`Metadata`** is generic over the path: `Metadata<Path>`, with `route.path` typed `readonly string[]`.
