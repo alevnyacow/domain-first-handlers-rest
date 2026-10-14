@@ -205,6 +205,18 @@ generateOpenAPI([sumPOST, sumGET, getUser], {
 - Add `summary`, `description`, `tags`, `successResponseDescription` to endpoint metadata, or override anything with `openApiMetadata`. Tags default to the first path segment.
 - Endpoints sharing a path are merged under it.
 
+**Shared schemas.** Named subschemas go to `components.schemas` and are referenced from every place they're used. Name them the way your library does, e.g. Zod's `.meta({ id })`:
+
+```ts
+const Money = z.object({ amount: z.number(), currency: z.string() }).meta({ id: "Money" });
+// → components.schemas.Money, used as { $ref: "#/components/schemas/Money" }
+```
+
+- Works for any library: whatever a schema's JSON Schema keeps in `$defs` or `definitions` becomes a component.
+- A name used by requests and responses stays one component when both describe the same thing, otherwise it becomes `MoneyInput` and `MoneyOutput` (Zod, for one, closes objects with `additionalProperties: false` only in responses).
+- Components from `document.components.schemas` are kept. Generation throws an error when one name describes different schemas, when it's already taken in the document, or when it has characters OpenAPI doesn't allow (only letters, digits, `.`, `-`, `_`).
+- The schema of a request or response part itself stays inline, even when it's named; only the schemas inside it are moved.
+
 **Schemas from any library.** Every schema goes through `standardSchemaToJSONSchema` before it reaches the document. It must return a [Standard JSON Schema](https://standardschema.dev) — an object with `~standard.jsonSchema.input()` and `.output()`. By default the schema is used as is, which is enough for libraries implementing Standard JSON Schema (Zod 4). For others (e.g. Valibot), pass a converter — otherwise generation throws an error naming the library. A plain JSON Schema converter just needs wrapping:
 
 ```ts

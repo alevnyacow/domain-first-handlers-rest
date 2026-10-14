@@ -401,6 +401,373 @@ describe('generateOpenAPI operations', () => {
     });
 });
 
+describe('generateOpenAPI schema components', () => {
+    const document = { info: { title: 'Test', version: '1.0.0' } };
+
+    /**
+     * Schema of a library that keeps named subschemas in `$defs`.
+     */
+    const jsonSchema = (
+        input: Record<string, unknown>,
+        output: Record<string, unknown> = input
+    ) =>
+        ({
+            '~standard': {
+                version: 1,
+                vendor: 'json-schema',
+                validate: (value: unknown) => ({ value }),
+                jsonSchema: { input: () => input, output: () => output }
+            }
+        }) as unknown as StandardSchemaV1;
+
+    const withBody = (
+        path: string,
+        schemas: Partial<
+            Record<'requestBody' | 'responseBody' | 'query', StandardSchemaV1>
+        >
+    ) => {
+        const result = route([path]);
+        result.metadata = { route: { method: 'post', path: [path] } };
+        result._api_schemas.requestSchemas.body = schemas.requestBody;
+        result._api_schemas.requestSchemas.query = schemas.query;
+        result._api_schemas.responseSchemas.body = schemas.responseBody;
+        return result;
+    };
+
+    const requestSchema = (
+        result: ReturnType<typeof generateOpenAPI>,
+        path: string
+    ) =>
+        (
+            result.paths[path]?.post?.requestBody as {
+                content: Record<string, { schema: unknown }>;
+            }
+        ).content['application/json']!.schema;
+
+    const responseSchema = (
+        result: ReturnType<typeof generateOpenAPI>,
+        path: string
+    ) =>
+        (
+            result.paths[path]?.post?.responses['200'] as {
+                content: Record<string, { schema: unknown }>;
+            }
+        ).content['application/json']!.schema;
+
+    const Money = z
+        .object({ amount: z.number(), currency: z.string() })
+        .meta({ id: 'Money' });
+
+    test('adds no components without named schemas', () => {
+        const result = generateOpenAPI(
+            [withBody('a', { responseBody: z.object({ a: z.string() }) })],
+            { document }
+        );
+
+        expect(result.components).toBeUndefined();
+    });
+
+    test('moves a named schema to components once', () => {
+        const result = generateOpenAPI(
+            [
+                withBody('orders', {
+                    responseBody: z.object({ total: Money, tax: Money })
+                }),
+                withBody('invoices', {
+                    responseBody: z.object({ items: z.array(Money) })
+                })
+            ],
+            { document }
+        );
+
+        expect(result.components?.schemas).toEqual({
+            Money: {
+                type: 'object',
+                properties: {
+                    amount: { type: 'number' },
+                    currency: { type: 'string' }
+                },
+                required: ['amount', 'currency'],
+                additionalProperties: false
+            }
+        });
+        expect(responseSchema(result, '/orders')).toEqual({
+            type: 'object',
+            properties: {
+                total: { $ref: '#/components/schemas/Money' },
+                tax: { $ref: '#/components/schemas/Money' }
+            },
+            required: ['total', 'tax'],
+            additionalProperties: false
+        });
+        expect(responseSchema(result, '/invoices')).toMatchObject({
+            properties: {
+                items: {
+                    type: 'array',
+                    items: { $ref: '#/components/schemas/Money' }
+                }
+            }
+        });
+    });
+
+    test('splits request and response variants that differ', () => {
+        const result = generateOpenAPI(
+            [
+                withBody('orders', {
+                    requestBody: z.object({ total: Money }),
+                    responseBody: z.object({ total: Money })
+                })
+            ],
+            { document }
+        );
+
+        expect(Object.keys(result.components?.schemas ?? {})).toEqual([
+            'MoneyInput',
+            'MoneyOutput'
+        ]);
+        expect(result.components?.schemas?.MoneyInput).not.toHaveProperty(
+            'additionalProperties'
+        );
+        expect(requestSchema(result, '/orders')).toMatchObject({
+            properties: { total: { $ref: '#/components/schemas/MoneyInput' } }
+        });
+        expect(responseSchema(result, '/orders')).toMatchObject({
+            properties: {
+                total: { $ref: '#/components/schemas/MoneyOutput' }
+            }
+        });
+    });
+
+    test('keeps one component for matching variants of any library', () => {
+        const body = jsonSchema({
+            type: 'object',
+            properties: { id: { $ref: '#/$defs/Id' } },
+            $defs: { Id: { type: 'string', format: 'uuid' } }
+        });
+        const result = generateOpenAPI(
+            [withBody('users', { requestBody: body, responseBody: body })],
+            { document }
+        );
+
+        expect(result.components?.schemas).toEqual({
+            Id: { type: 'string', format: 'uuid' }
+        });
+        expect(requestSchema(result, '/users')).toEqual({
+            type: 'object',
+            properties: { id: { $ref: '#/components/schemas/Id' } }
+        });
+        expect(responseSchema(result, '/users')).toEqual(
+            requestSchema(result, '/users')
+        );
+    });
+
+    test('splits schemas referring to split ones', () => {
+        const variant = (closed: boolean) => ({
+            type: 'object',
+            properties: { price: { $ref: '#/$defs/Price' } },
+            $defs: {
+                Line: {
+                    type: 'object',
+                    properties: { price: { $ref: '#/$defs/Price' } }
+                },
+                Price: {
+                    type: 'object',
+                    properties: { amount: { type: 'number' } },
+                    ...(closed && { additionalProperties: false })
+                }
+            }
+        });
+        const line = (closed: boolean) => ({
+            ...variant(closed),
+            properties: { line: { $ref: '#/$defs/Line' } }
+        });
+        const result = generateOpenAPI(
+            [
+                withBody('lines', {
+                    requestBody: jsonSchema(line(false)),
+                    responseBody: jsonSchema(line(false), line(true))
+                })
+            ],
+            { document }
+        );
+
+        expect(Object.keys(result.components?.schemas ?? {}).sort()).toEqual([
+            'LineInput',
+            'LineOutput',
+            'PriceInput',
+            'PriceOutput'
+        ]);
+        expect(result.components?.schemas?.LineOutput).toEqual({
+            type: 'object',
+            properties: {
+                price: { $ref: '#/components/schemas/PriceOutput' }
+            }
+        });
+        expect(responseSchema(result, '/lines')).toMatchObject({
+            properties: { line: { $ref: '#/components/schemas/LineOutput' } }
+        });
+    });
+
+    test('resolves references in parameters', () => {
+        const result = generateOpenAPI(
+            [
+                withBody('search', {
+                    query: jsonSchema({
+                        type: 'object',
+                        properties: { sort: { $ref: '#/definitions/Sort' } },
+                        definitions: { Sort: { type: 'string' } }
+                    })
+                })
+            ],
+            { document }
+        );
+
+        expect(result.paths['/search']?.post?.parameters).toEqual([
+            {
+                name: 'sort',
+                in: 'query',
+                required: false,
+                schema: { $ref: '#/components/schemas/Sort' }
+            }
+        ]);
+    });
+
+    test('leaves data and property names as they are', () => {
+        const result = generateOpenAPI(
+            [
+                withBody('data', {
+                    responseBody: jsonSchema({
+                        type: 'object',
+                        properties: {
+                            default: { $ref: '#/$defs/Id' },
+                            $ref: { type: 'string' },
+                            payload: {
+                                type: 'object',
+                                default: { $ref: '#/$defs/Id' }
+                            },
+                            external: { $ref: '#/$defs/Missing' }
+                        },
+                        $defs: { Id: { type: 'string' } }
+                    })
+                })
+            ],
+            { document }
+        );
+
+        expect(responseSchema(result, '/data')).toEqual({
+            type: 'object',
+            properties: {
+                default: { $ref: '#/components/schemas/Id' },
+                $ref: { type: 'string' },
+                payload: { type: 'object', default: { $ref: '#/$defs/Id' } },
+                external: { $ref: '#/$defs/Missing' }
+            }
+        });
+    });
+
+    test('merges components of the document', () => {
+        const result = generateOpenAPI(
+            [withBody('orders', { responseBody: z.object({ total: Money }) })],
+            {
+                document: {
+                    ...document,
+                    components: {
+                        schemas: { Error: { type: 'string' } },
+                        securitySchemes: {
+                            bearer: { type: 'http', scheme: 'bearer' }
+                        }
+                    }
+                }
+            }
+        );
+
+        expect(Object.keys(result.components?.schemas ?? {})).toEqual([
+            'Error',
+            'Money'
+        ]);
+        expect(result.components?.securitySchemes).toEqual({
+            bearer: { type: 'http', scheme: 'bearer' }
+        });
+    });
+
+    test('rejects names already in the document components', () => {
+        expect(() =>
+            generateOpenAPI(
+                [
+                    withBody('orders', {
+                        responseBody: z.object({ total: Money })
+                    })
+                ],
+                {
+                    document: {
+                        ...document,
+                        components: { schemas: { Money: { type: 'string' } } }
+                    }
+                }
+            )
+        ).toThrow('Schema "Money" is already in components.schemas');
+    });
+
+    test('rejects split names taken by other schemas', () => {
+        const MoneyInput = z.object({ x: z.string() }).meta({
+            id: 'MoneyInput'
+        });
+
+        expect(() =>
+            generateOpenAPI(
+                [
+                    withBody('orders', {
+                        requestBody: z.object({ total: Money, x: MoneyInput }),
+                        responseBody: z.object({ total: Money })
+                    })
+                ],
+                { document }
+            )
+        ).toThrow('Schema "MoneyInput" is already in components.schemas');
+    });
+
+    test('rejects different schemas of one name', () => {
+        expect(() =>
+            generateOpenAPI(
+                [
+                    withBody('a', {
+                        responseBody: z.object({ money: Money })
+                    }),
+                    withBody('b', {
+                        responseBody: z.object({
+                            money: z.object({ cents: z.number() }).meta({
+                                id: 'Money'
+                            })
+                        })
+                    })
+                ],
+                { document }
+            )
+        ).toThrow(
+            'Schema "Money" is described differently in several places, give each variant its own name'
+        );
+    });
+
+    test('rejects names OpenAPI does not allow', () => {
+        expect(() =>
+            generateOpenAPI(
+                [
+                    withBody('a', {
+                        responseBody: jsonSchema({
+                            type: 'object',
+                            properties: { x: { $ref: '#/$defs/My%20Id' } },
+                            $defs: { 'My Id': { type: 'string' } }
+                        })
+                    })
+                ],
+                { document }
+            )
+        ).toThrow(
+            `Schema "My Id" can't be an OpenAPI component name, use letters, digits, ".", "-" and "_"`
+        );
+    });
+});
+
 describe('generateOpenAPI output file', () => {
     const document = { info: { title: 'Test', version: '1.0.0' } };
     const directory = mkdtempSync(path.join(tmpdir(), 'handlers-rest-'));

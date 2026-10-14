@@ -5,6 +5,7 @@ import { pathParamNames } from '../path-params';
 import type { Metadata, RawAPISchemas } from '../types';
 import { describeParameters } from './describe-parameters';
 import { jsonSchemasFromRoute } from './json-schemas-from-route';
+import { createSchemaComponents } from './schema-components';
 import {
     defaultStandardSchemaToJSONSchema,
     type StandardSchemaToJSONSchema,
@@ -49,6 +50,11 @@ export const generateOpenAPI = (
     const paths: OpenAPIV3.PathsObject = {};
     const toJSONSchema =
         options.standardSchemaToJSONSchema ?? defaultStandardSchemaToJSONSchema;
+    const components = createSchemaComponents();
+    const schemaOf = (
+        schema: Parameters<typeof toOpenAPISchema>[0],
+        direction: 'input' | 'output'
+    ) => components.hoist(toOpenAPISchema(schema, direction), direction);
 
     for (const route of routes) {
         const jsonSchemas = jsonSchemasFromRoute(route, {
@@ -63,7 +69,7 @@ export const generateOpenAPI = (
 
                       content: {
                           'application/json': {
-                              schema: toOpenAPISchema(
+                              schema: schemaOf(
                                   jsonSchemas.responseBody,
                                   'output'
                               )
@@ -87,7 +93,7 @@ export const generateOpenAPI = (
                                           required: ['name'],
                                           properties: {
                                               name: x[1].openApiTypes?.name
-                                                  ? toOpenAPISchema(
+                                                  ? schemaOf(
                                                         toJSONSchema(
                                                             x[1].openApiTypes
                                                                 .name
@@ -103,15 +109,14 @@ export const generateOpenAPI = (
                                               },
                                               ...(x[1].openApiTypes?.details
                                                   ? {
-                                                        details:
-                                                            toOpenAPISchema(
-                                                                toJSONSchema(
-                                                                    x[1]
-                                                                        .openApiTypes
-                                                                        .details
-                                                                ),
-                                                                'output'
-                                                            )
+                                                        details: schemaOf(
+                                                            toJSONSchema(
+                                                                x[1]
+                                                                    .openApiTypes
+                                                                    .details
+                                                            ),
+                                                            'output'
+                                                        )
                                                     }
                                                   : {})
                                           }
@@ -140,7 +145,7 @@ export const generateOpenAPI = (
         };
 
         if (jsonSchemas.requestQuery) {
-            const schema = toOpenAPISchema(jsonSchemas.requestQuery, 'input');
+            const schema = schemaOf(jsonSchemas.requestQuery, 'input');
             operation.parameters = describeParameters(schema, 'query');
         }
 
@@ -158,14 +163,14 @@ export const generateOpenAPI = (
         }
 
         if (jsonSchemas.requestCookies) {
-            const schema = toOpenAPISchema(jsonSchemas.requestCookies, 'input');
+            const schema = schemaOf(jsonSchemas.requestCookies, 'input');
             operation.parameters = (operation.parameters ?? []).concat(
                 describeParameters(schema, 'cookie')
             );
         }
 
         if (jsonSchemas.requestHeaders) {
-            const schema = toOpenAPISchema(jsonSchemas.requestHeaders, 'input');
+            const schema = schemaOf(jsonSchemas.requestHeaders, 'input');
             operation.parameters = (operation.parameters ?? []).concat(
                 describeParameters(schema, 'header')
             );
@@ -177,10 +182,7 @@ export const generateOpenAPI = (
 
                 content: {
                     'application/json': {
-                        schema: toOpenAPISchema(
-                            jsonSchemas.requestBody,
-                            'input'
-                        )
+                        schema: schemaOf(jsonSchemas.requestBody, 'input')
                     }
                 }
             };
@@ -203,9 +205,17 @@ export const generateOpenAPI = (
         };
     }
 
+    const schemas = components.finalize(options.document.components?.schemas);
+
     const result: OpenAPIV3.Document = {
         openapi: '3.0.3',
         ...options.document,
+        ...(Object.keys(schemas).length > 0 && {
+            components: {
+                ...options.document.components,
+                schemas: { ...options.document.components?.schemas, ...schemas }
+            }
+        }),
         paths
     };
 
