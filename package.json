@@ -3,6 +3,7 @@
     "description": "Expose domain operations through REST without coupling your domain to HTTP",
     "version": "8.1.0",
     "license": "MIT",
+    "homepage": "https://domain-first-landing.vercel.app/handlers-rest/",
     "type": "module",
     "exports": {
         ".": {

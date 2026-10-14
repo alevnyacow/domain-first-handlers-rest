@@ -1,18 +1,10 @@
-<p align="center">
-    <img src="https://raw.githubusercontent.com/alevnyacow/domain-first-handlers-rest/refs/heads/main/logo.svg?sanitize=true" alt="Domain First Handlers REST">
-</p>
+# Domain First Handlers REST
 
-<h1 align="center">Your domain logic. A typed REST boundary.</h1>
-
-<p align="center">
-    One handler → any number of validated, fully typed REST endpoints → OpenAPI for free.
-</p>
-
-<p align="center">
-    <a href="https://www.npmjs.com/package/@domain-first/handlers-rest"><img src="https://img.shields.io/npm/v/%40domain-first%2Fhandlers-rest" alt="npm version"></a>
-    <img src="https://img.shields.io/badge/TypeScript-ready-3178C6?logo=typescript&amp;logoColor=white" alt="TypeScript ready">
-    <a href="./LICENSE"><img src="https://img.shields.io/npm/l/%40domain-first%2Fhandlers-rest" alt="MIT license"></a>
-</p>
+<a href="https://www.npmjs.com/package/@domain-first/handlers-rest">
+    <img src="https://img.shields.io/npm/v/%40domain-first%2Fhandlers-rest" alt="npm version">
+</a>
+<img src="https://img.shields.io/badge/TypeScript-ready-3178C6?logo=typescript&amp;logoColor=white" alt="TypeScript ready">
+<a href="./LICENSE"><img src="https://img.shields.io/npm/l/%40domain-first%2Fhandlers-rest" alt="MIT license"></a>
 
 Your business logic shouldn't know what an HTTP request is. Write it once as a [`@domain-first/handlers`](https://www.npmjs.com/package/@domain-first/handlers) handler, then describe how HTTP reaches it — and get:
 
@@ -31,7 +23,10 @@ npm install @domain-first/handlers-rest @domain-first/handlers zod
 
 ```ts
 import { defineHandler } from "@domain-first/handlers";
-import { createEndpoint, mockAdapter } from "@domain-first/handlers-rest";
+import {
+    createEndpoint,
+    mockAdapter,
+} from "@domain-first/handlers-rest";
 import z from "zod";
 
 // Pure domain logic — no HTTP in sight.
@@ -43,7 +38,9 @@ const sum = defineHandler({
 
 const endpoint = createEndpoint()(mockAdapter);
 
-const sumPOST = endpoint(sum, { route: { method: "post", path: ["sum"] } })
+const sumPOST = endpoint(sum, {
+    route: { method: "post", path: ["sum"] },
+})
     .input((schema) => ({ body: schema })) // reuse the handler's schema
     .mapInput(({ body }) => body);
 
@@ -56,11 +53,11 @@ No server, no setup — just run it. Swap `mockAdapter` for a real one when you'
 ## How an endpoint is built
 
 ```ts
-endpoint(handler, metadata)                // what to run and where
-    .input((inputSchema) => schemas)       // which request parts to validate
-    .mapInput((request) => handlerInput)   // HTTP → domain
-    .output((outputSchema) => schemas)     // optional: response parts to validate
-    .mapOutput((result) => response);      // optional: domain → HTTP
+endpoint(handler, metadata) // what to run and where
+    .input((inputSchema) => schemas) // which request parts to validate
+    .mapInput((request) => handlerInput) // HTTP → domain
+    .output((outputSchema) => schemas) // optional: response parts to validate
+    .mapOutput((result) => response); // optional: domain → HTTP
 ```
 
 - **Request parts:** `query`, `body`, `formData`, `headers`, `cookies` take schemas; `params` come from the route.
@@ -73,11 +70,16 @@ endpoint(handler, metadata)                // what to run and where
 Expose it via query string and wrap the response — the handler stays untouched:
 
 ```ts
-const sumGET = endpoint(sum, { route: { method: "get", path: ["sum"] } })
+const sumGET = endpoint(sum, {
+    route: { method: "get", path: ["sum"] },
+})
     .input(() => ({
         query: z.object({ a: z.string(), b: z.string() }),
     }))
-    .mapInput(({ query }) => ({ a: Number(query.a), b: Number(query.b) }))
+    .mapInput(({ query }) => ({
+        a: Number(query.a),
+        b: Number(query.b),
+    }))
     .output((schema) => ({ body: z.object({ result: schema }) }))
     .mapOutput((result) => ({ body: { result } }));
 
@@ -99,7 +101,9 @@ Response headers and cookies work the same way; cookie options go in the second 
 Mark segments with `:`. The route is the only place parameters are declared: their names are inferred from it, so `params` is typed in `.mapInput()` with no schema to write:
 
 ```ts
-const getUser = endpoint(findUser, { route: { method: "get", path: ["users", ":userId"] } })
+const getUser = endpoint(findUser, {
+    route: { method: "get", path: ["users", ":userId"] },
+})
     .input(() => ({}))
     .mapInput(({ params }) => ({ id: Number(params.userId) })); // params: { userId: string }
 
@@ -125,12 +129,12 @@ endpoint(sum, { route: { method: "get", path: ["sum"] } })
 //   { ERROR: 'INVALID QUERY PARAMETERS SCHEMA'; INVALID: 'a'; CURRENT: { a: number } }
 ```
 
-| Error | When |
-| --- | --- |
-| `INVALID QUERY PARAMETERS SCHEMA` | a `query` schema produces something other than `string` (optional fields are fine: `string \| undefined`) |
-| `INVALID HEADERS SCHEMA` | same for `headers` |
-| `INVALID COOKIES SCHEMA` | same for `cookies` |
-| `UNKNOWN REQUEST SOURCES` | a key other than `query`, `body`, `formData`, `headers`, `cookies` — including `params`, which come from the route. If it's the only key, TypeScript reports instead that the object has no properties in common with `RequestSchemas` |
+| Error                             | When                                                                                                                                                                                                                                   |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `INVALID QUERY PARAMETERS SCHEMA` | a `query` schema produces something other than `string` (optional fields are fine: `string \| undefined`)                                                                                                                              |
+| `INVALID HEADERS SCHEMA`          | same for `headers`                                                                                                                                                                                                                     |
+| `INVALID COOKIES SCHEMA`          | same for `cookies`                                                                                                                                                                                                                     |
+| `UNKNOWN REQUEST SOURCES`         | a key other than `query`, `body`, `formData`, `headers`, `cookies` — including `params`, which come from the route. If it's the only key, TypeScript reports instead that the object has no properties in common with `RequestSchemas` |
 
 Mappers are type-checked too: `.mapInput()` must return the handler's input, `.mapOutput()` must return every declared response part.
 
@@ -153,12 +157,18 @@ The contract contains every declared part: `query`, `params` (from the route), `
 Configure once, reuse everywhere:
 
 ```ts
-import { InputMappingError, RequestParsingError } from "@domain-first/handlers-rest";
+import {
+    InputMappingError,
+    RequestParsingError,
+} from "@domain-first/handlers-rest";
 
 const appEndpoint = createEndpoint({
     errorStatuses: {
         400: {
-            checks: [(e) => e instanceof RequestParsingError, (e) => e instanceof InputMappingError],
+            checks: [
+                (e) => e instanceof RequestParsingError,
+                (e) => e instanceof InputMappingError,
+            ],
             description: "Invalid request",
         },
     },
@@ -176,12 +186,12 @@ const appEndpoint = createEndpoint({
 
 **What can fail**
 
-| Error | Cause |
-| --- | --- |
-| `RequestParsingError` | a request part doesn't match its schema, or a route parameter is missing; `details.source` says which (`query`, `params`, `body`, `formData`, `headers`, `cookies`) |
-| `ResponseParsingError` | `.mapOutput()` result doesn't match a response schema; `details.source` is `body`, `headers` or `cookies` |
-| `InputMappingError` | `.mapInput()` result doesn't match the handler's input schema (e.g. `Number("abc")` from a path parameter); `details` has `issues` and `received` |
-| your domain errors | thrown by the handler |
+| Error                  | Cause                                                                                                                                                               |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `RequestParsingError`  | a request part doesn't match its schema, or a route parameter is missing; `details.source` says which (`query`, `params`, `body`, `formData`, `headers`, `cookies`) |
+| `ResponseParsingError` | `.mapOutput()` result doesn't match a response schema; `details.source` is `body`, `headers` or `cookies`                                                           |
+| `InputMappingError`    | `.mapInput()` result doesn't match the handler's input schema (e.g. `Number("abc")` from a path parameter); `details` has `issues` and `received`                   |
+| your domain errors     | thrown by the handler                                                                                                                                               |
 
 All of them are turned into error responses through the adapter instead of being thrown.
 
@@ -195,7 +205,9 @@ All of them are turned into error responses through the adapter instead of being
 import { generateOpenAPI } from "@domain-first/handlers-rest";
 
 generateOpenAPI([sumPOST, sumGET, getUser], {
-    document: { info: { title: "Calculator API", version: "1.0.0" } },
+    document: {
+        info: { title: "Calculator API", version: "1.0.0" },
+    },
     apiRoutePrefix: ["api"], // → /api/sum
     outputFile: { path: "openapi.json" }, // optional, `format` customizes the content
 });
@@ -208,7 +220,9 @@ generateOpenAPI([sumPOST, sumGET, getUser], {
 **Shared schemas.** Named subschemas go to `components.schemas` and are referenced from every place they're used. Name them the way your library does, e.g. Zod's `.meta({ id })`:
 
 ```ts
-const Money = z.object({ amount: z.number(), currency: z.string() }).meta({ id: "Money" });
+const Money = z
+    .object({ amount: z.number(), currency: z.string() })
+    .meta({ id: "Money" });
 // → components.schemas.Money, used as { $ref: "#/components/schemas/Money" }
 ```
 
@@ -237,11 +251,11 @@ generateOpenAPI(endpoints, {
 
 ## Adapters
 
-| Adapter | For |
-| --- | --- |
-| [`@domain-first/handlers-next`](https://www.npmjs.com/package/@domain-first/handlers-next) | Next.js App Router |
-| `mockAdapter` (built in) | Tests and playgrounds |
-| Your own `Adapter<Request, Response>` | Any other framework |
+| Adapter                                                                                    | For                   |
+| ------------------------------------------------------------------------------------------ | --------------------- |
+| [`@domain-first/handlers-next`](https://www.npmjs.com/package/@domain-first/handlers-next) | Next.js App Router    |
+| `mockAdapter` (built in)                                                                   | Tests and playgrounds |
+| Your own `Adapter<Request, Response>`                                                      | Any other framework   |
 
 An adapter reads request parts and writes the response:
 
@@ -264,7 +278,9 @@ const expressAdapter: Adapter<[Request, Response], void> = {
             return;
         }
         // response: { statusCode, body, headers, cookies, configuration: { cookies } }
-        res.status(response.statusCode).set(response.headers ?? {}).json(response.body);
+        res.status(response.statusCode)
+            .set(response.headers ?? {})
+            .json(response.body);
     },
 };
 ```
