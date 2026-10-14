@@ -1,10 +1,12 @@
 # Domain First Handlers REST
 
-<a href="https://www.npmjs.com/package/@domain-first/handlers-rest">
-    <img src="https://img.shields.io/npm/v/%40domain-first%2Fhandlers-rest" alt="npm version">
-</a>
-<img src="https://img.shields.io/badge/TypeScript-ready-3178C6?logo=typescript&amp;logoColor=white" alt="TypeScript ready">
-<a href="./LICENSE"><img src="https://img.shields.io/npm/l/%40domain-first%2Fhandlers-rest" alt="MIT license"></a>
+<p>
+    <a href="https://www.npmjs.com/package/@domain-first/handlers-rest">
+        <img src="https://img.shields.io/npm/v/%40domain-first%2Fhandlers-rest" alt="npm version">
+    </a>
+    <img src="https://img.shields.io/badge/TypeScript-ready-3178C6?logo=typescript&amp;logoColor=white" alt="TypeScript ready">
+    <a href="./LICENSE"><img src="https://img.shields.io/npm/l/%40domain-first%2Fhandlers-rest" alt="MIT license"></a>
+</p>
 
 Your business logic shouldn't know what an HTTP request is. Write it once as a [`@domain-first/handlers`](https://www.npmjs.com/package/@domain-first/handlers) handler, then describe how HTTP reaches it — and get:
 
