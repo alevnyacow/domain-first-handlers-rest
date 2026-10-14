@@ -1,3 +1,10 @@
+## [8.1.2](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v8.1.1...v8.1.2) (2026-10-14)
+
+
+### Bug Fixes
+
+* badges in <p/> (readme) ([a389fe0](https://github.com/alevnyacow/domain-first-handlers-rest/commit/a389fe0296a2584779dc8b1d79a59cf74bc71da8))
+
 ## [8.1.1](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v8.1.0...v8.1.1) (2026-10-14)
 
 
