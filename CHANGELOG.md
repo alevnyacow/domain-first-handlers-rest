@@ -1,3 +1,10 @@
+# [8.1.0](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v8.0.2...v8.1.0) (2026-10-14)
+
+
+### Features
+
+* added shared schemas for openapi ([4a501e7](https://github.com/alevnyacow/domain-first-handlers-rest/commit/4a501e744f8bf24399a83a3da3a2ebdfbba3f79f))
+
 ## [8.0.2](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v8.0.1...v8.0.2) (2026-10-12)
 
 
