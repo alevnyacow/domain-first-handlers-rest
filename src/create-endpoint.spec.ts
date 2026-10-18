@@ -36,16 +36,7 @@ describe('object adapter', async () => {
     describe('params in query', async () => {
         const allInQuery = mockEndpoint(sum, {
             route: { method: 'get', path: ['ssss', 'fs'] },
-            successStatusCode: 205,
-            errorStatuses: {
-                404: {
-                    checks: [(_x) => true],
-                    toFullModel: (x) => ({
-                        name: x.name,
-                        message: x.message
-                    })
-                }
-            }
+            successStatusCode: 205
         })
             .input((_query) => ({
                 query: _query
@@ -157,10 +148,7 @@ describe('path params', async () => {
     test('rejects missing params', async () => {
         const result = await typed({ pathParams: { userId: '42' } });
         expect(result.success).toBe(false);
-        expect(JSON.parse(result.body).details).toMatchObject({
-            source: 'params',
-            received: { userId: '42' }
-        });
+        expect(result.statusCode).toBe(500);
     });
 
     test('types params from the route', () => {

@@ -14,24 +14,40 @@ export type HttpMethod =
     | 'head'
     | 'options';
 
-export type ErrorStatuses = Record<
-    number,
-    {
-        description?: string;
-        checks: Array<(e: Error) => boolean>;
-        toFullModel?: <T extends Error = Error>(
-            e: T
-        ) => {
-            name: string;
-            message?: string;
-            details?: object;
-        };
-        openApiTypes?: {
-            details?: StandardSchemaV1;
-            name?: StandardSchemaV1;
-        };
-    }
->;
+export type ErrorClass = abstract new (...args: any[]) => Error;
+
+/**
+ * Error class that identifies itself, like classes of `@domain-first/errors`.
+ */
+export type DomainErrorClass = ErrorClass & {
+    readonly code: string;
+    is(target: unknown): boolean;
+};
+
+/**
+ * How errors become an error response,
+ * created with `httpError()` or `httpStatus()`.
+ */
+export type ErrorMapping = {
+    code: string;
+    status: number;
+    description?: string;
+    matches: (error: Error) => boolean;
+    message?: string | ((error: Error) => string);
+    details?: {
+        schema: StandardSchemaV1;
+        map: (error: Error) => unknown;
+    };
+};
+
+/**
+ * `message` and `details` are present only when the mapping sets them.
+ */
+export type ErrorResponseBody = {
+    code: string;
+    message?: string;
+    details?: unknown;
+};
 
 export type Metadata<Path extends readonly string[] = readonly string[]> = {
     /**
@@ -44,7 +60,11 @@ export type Metadata<Path extends readonly string[] = readonly string[]> = {
     summary?: string;
     successStatusCode?: number;
     tags?: string[];
-    errorStatuses?: ErrorStatuses;
+    /**
+     * Created with `httpError()` and `httpStatus()`. Errors without a mapping
+     * respond `500` with `{ code: INTERNAL_ERROR_CODE }` only.
+     */
+    errors?: ErrorMapping[];
     openApiMetadata?: Partial<OpenAPIV3.OperationObject>;
 };
 

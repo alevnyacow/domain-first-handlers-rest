@@ -1,13 +1,16 @@
+import { errorNamespace } from '@domain-first/errors';
 import { defineHandler } from '@domain-first/handlers';
 import { describe, expect, test } from '@rstest/core';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import z from 'zod';
 import { createEndpoint } from './create-endpoint';
 import {
+    ErrorResponseMappingError,
+    INTERNAL_ERROR_CODE,
     InputMappingError,
-    RequestParsingError,
-    ResponseParsingError
+    RequestParsingError
 } from './errors';
+import { httpError, httpStatus } from './http-error';
 import { type MockRestAdapterInput, mockAdapter } from './mock-adapter';
 import { generateOpenAPI } from './open-api';
 import type { Adapter, RawRequestModel, RequestSchemas } from './types';
@@ -25,6 +28,23 @@ const failing = defineHandler({
         throw new Error('domain failure');
     }
 });
+
+const DomainErrors = errorNamespace('test');
+
+const NotFoundError = DomainErrors.define<{ id: string; secret: string }>(
+    'not-found'
+);
+
+const ConflictError = DomainErrors.define('conflict');
+
+const throwing = (error: Error) =>
+    defineHandler({
+        inputSchema: z.object({}),
+        outputSchema: z.number(),
+        handler: async () => {
+            throw error;
+        }
+    });
 
 const errorBody = (result: { body?: any }) => JSON.parse(result.body);
 
@@ -64,9 +84,34 @@ const recordingAdapter = () => {
 };
 
 const withBadRequest = createEndpoint({
-    errorStatuses: {
-        400: { checks: [(e) => e instanceof RequestParsingError] }
-    }
+    errors: [
+        httpError(RequestParsingError, 400, {
+            details: {
+                schema: z.object({
+                    source: z.string(),
+                    issues: z.array(
+                        z.object({
+                            message: z.string(),
+                            path: z.array(z.string())
+                        })
+                    )
+                }),
+                map: (e) => ({
+                    source: e.details.source,
+                    issues: e.details.issues.map((issue) => ({
+                        message: issue.message,
+                        path: (issue.path ?? []).map((segment) =>
+                            String(
+                                typeof segment === 'object'
+                                    ? segment.key
+                                    : segment
+                            )
+                        )
+                    }))
+                })
+            }
+        })
+    ]
 })(mockAdapter);
 
 describe('request parsing', () => {
@@ -126,10 +171,10 @@ describe('request parsing', () => {
             test('rejects invalid data with its source', async () => {
                 const result = await sourceEndpoint(invalid as any);
                 expect(result.statusCode).toBe(400);
-                expect(errorBody(result).details).toMatchObject({
-                    source,
-                    received: Object.values(invalid)[0]
-                });
+                const { details } = errorBody(result);
+                expect(details.source).toBe(source);
+                // only mapped details are sent
+                expect(details).not.toHaveProperty('received');
             });
         });
     }
@@ -207,10 +252,7 @@ describe('request parsing', () => {
             .input(() => ({}))
             .mapInput(() => ({ value: 1 }) as any)({});
         expect(result.statusCode).toBe(500);
-        expect(errorBody(result)).toMatchObject({
-            name: new InputMappingError({ issues: [], received: {} }).name,
-            details: { received: { value: 1 } }
-        });
+        expect(errorBody(result)).toEqual({ code: INTERNAL_ERROR_CODE });
     });
 
     test('lets invalid mapped input be a client error', async () => {
@@ -220,9 +262,7 @@ describe('request parsing', () => {
             handler: async ({ a }) => a
         });
         const result = await createEndpoint({
-            errorStatuses: {
-                400: { checks: [(e) => e instanceof InputMappingError] }
-            }
+            errors: [httpError(InputMappingError, 400)]
         })(mockAdapter)(sum, { route: { method: 'get', path: [':a'] } })
             .input(() => ({}))
             .mapInput(({ params }) => ({ a: Number(params.a) }))({
@@ -238,9 +278,8 @@ describe('request parsing', () => {
             .input(() => ({}))
             .mapInput(({ params }) => params)({ pathParams: { other: 'x' } });
         expect(result.statusCode).toBe(400);
-        expect(errorBody(result).details).toMatchObject({
+        expect(errorBody(result).details).toEqual({
             source: 'params',
-            received: { other: 'x' },
             issues: [
                 {
                     message: 'Path parameter "value" is missing',
@@ -335,87 +374,331 @@ describe('context', () => {
 
 describe('errors', () => {
     const route = { method: 'get', path: [] } as const;
+    const notFound = new NotFoundError({ id: '7', secret: 'token' });
 
-    test('become 500 by default', async () => {
-        const result = await createEndpoint()(mockAdapter)(failing, { route })
-            .input(() => ({}))
-            .mapInput(() => ({}))({});
-        expect(result).toMatchObject({ success: false, statusCode: 500 });
-        expect(errorBody(result)).toEqual({
-            name: 'Error',
-            message: 'domain failure'
-        });
-    });
-
-    test('use shared statuses', async () => {
-        const result = await createEndpoint({
-            errorStatuses: { 409: { checks: [() => false, () => true] } }
-        })(mockAdapter)(failing, { route })
-            .input(() => ({}))
-            .mapInput(() => ({}))({});
-        expect(result.statusCode).toBe(409);
-    });
-
-    test('ignore statuses whose checks do not match', async () => {
-        const result = await createEndpoint({
-            errorStatuses: { 409: { checks: [() => false] } }
-        })(mockAdapter)(failing, {
+    const call = (
+        error: Error,
+        config: Parameters<typeof createEndpoint>[0] = {},
+        endpointErrors?: ReturnType<typeof httpError>[]
+    ) =>
+        createEndpoint(config)(mockAdapter)(throwing(error), {
             route,
-            errorStatuses: { 418: { checks: [() => false] } }
+            errors: endpointErrors
         })
             .input(() => ({}))
             .mapInput(() => ({}))({});
+
+    test('become 500 with the internal code only by default', async () => {
+        const result = await call(notFound);
+        expect(result).toMatchObject({ success: false, statusCode: 500 });
+        expect(errorBody(result)).toEqual({ code: INTERNAL_ERROR_CODE });
+    });
+
+    test('do not expose errors that are not domain errors', async () => {
+        const result = await createEndpoint()(mockAdapter)(failing, { route })
+            .input(() => ({}))
+            .mapInput(() => ({}))({});
+        expect(errorBody(result)).toEqual({ code: INTERNAL_ERROR_CODE });
+    });
+
+    test('send only the code by default', async () => {
+        const result = await call(notFound, {
+            errors: [httpError(NotFoundError, 404)]
+        });
+        expect(result.statusCode).toBe(404);
+        expect(errorBody(result)).toEqual({ code: NotFoundError.code });
+    });
+
+    test('ignore mappings of other errors', async () => {
+        const result = await call(notFound, {
+            errors: [httpError(ConflictError, 409)]
+        });
         expect(result.statusCode).toBe(500);
     });
 
-    test('prefer endpoint statuses and their full model', async () => {
-        const failingEndpoint = createEndpoint({
-            errorStatuses: {
-                409: {
-                    checks: [() => true],
-                    toFullModel: () => ({ name: 'shared' })
-                }
-            }
+    test('send messages that are set', async () => {
+        const fixed = await call(notFound, {
+            errors: [httpError(NotFoundError, 404, { message: 'Not found' })]
+        });
+        expect(errorBody(fixed)).toEqual({
+            code: NotFoundError.code,
+            message: 'Not found'
+        });
+
+        const built = await call(notFound, {
+            errors: [
+                httpError(NotFoundError, 404, {
+                    message: (e) => `${e.details.id} is not found`
+                })
+            ]
+        });
+        expect(errorBody(built).message).toBe('7 is not found');
+    });
+
+    test('send mapped and validated details', async () => {
+        const result = await call(notFound, {
+            errors: [
+                httpError(NotFoundError, 404, {
+                    details: {
+                        schema: z.object({ id: z.coerce.number() }),
+                        map: (e) => ({ id: e.details.id })
+                    }
+                })
+            ]
+        });
+        expect(errorBody(result)).toEqual({
+            code: NotFoundError.code,
+            details: { id: 7 }
+        });
+    });
+
+    test('send no details that fail validation and notify hooks', async () => {
+        const hookErrors: unknown[] = [];
+        const result = await call(notFound, {
+            hooks: [{ onError: (e) => void hookErrors.push(e) }],
+            errors: [
+                httpError(NotFoundError, 404, {
+                    details: {
+                        schema: z.object({ id: z.number() }),
+                        map: (e) => ({ id: e.details.id as any })
+                    }
+                })
+            ]
+        });
+
+        expect(result.statusCode).toBe(404);
+        expect(errorBody(result)).toEqual({ code: NotFoundError.code });
+
+        const mappingError = hookErrors.find((e) =>
+            ErrorResponseMappingError.is(e)
+        );
+        expect(mappingError).toBeDefined();
+        expect(
+            ErrorResponseMappingError.is(mappingError) && mappingError.details
+        ).toMatchObject({
+            code: NotFoundError.code,
+            part: 'details',
+            received: { id: '7' }
+        });
+    });
+
+    test('send no parts whose mappers throw', async () => {
+        const hookErrors: unknown[] = [];
+        const result = await call(notFound, {
+            hooks: [{ onError: (e) => void hookErrors.push(e) }],
+            errors: [
+                httpError(NotFoundError, 404, {
+                    message: () => {
+                        throw new Error('message');
+                    },
+                    details: {
+                        schema: z.object({}),
+                        map: () => {
+                            throw new Error('details');
+                        }
+                    }
+                })
+            ]
+        });
+
+        expect(result.statusCode).toBe(404);
+        expect(errorBody(result)).toEqual({ code: NotFoundError.code });
+        expect(
+            hookErrors
+                .filter((e) => ErrorResponseMappingError.is(e))
+                .map((e) => [e.details.part, (e.cause as Error).message])
+        ).toEqual([
+            ['message', 'message'],
+            ['details', 'details']
+        ]);
+    });
+
+    test('prefer endpoint mappings of the same error', async () => {
+        const result = await call(
+            notFound,
+            {
+                errors: [
+                    httpError(NotFoundError, 404),
+                    httpError(ConflictError, 409)
+                ]
+            },
+            [httpError(NotFoundError, 410, { message: 'Gone' })]
+        );
+        expect(result.statusCode).toBe(410);
+        expect(errorBody(result)).toEqual({
+            code: NotFoundError.code,
+            message: 'Gone'
+        });
+    });
+
+    test('expose merged mappings in metadata', () => {
+        const described = createEndpoint({
+            errors: [
+                httpError(NotFoundError, 404),
+                httpError(ConflictError, 409)
+            ]
         })(mockAdapter)(failing, {
             route,
-            errorStatuses: {
-                422: {
-                    checks: [() => true],
-                    toFullModel: (e) => ({
-                        name: 'endpoint',
-                        message: e.message,
-                        details: { extra: true }
-                    })
-                }
-            }
+            errors: [httpError(NotFoundError, 410)]
         })
             .input(() => ({}))
             .mapInput(() => ({}));
 
-        const result = await failingEndpoint({});
-        expect(result.statusCode).toBe(422);
-        expect(errorBody(result)).toEqual({
-            name: 'endpoint',
-            message: 'domain failure',
-            details: { extra: true }
-        });
         expect(
-            Object.keys(failingEndpoint.metadata.errorStatuses ?? {})
-        ).toEqual(['409', '422']);
+            described.metadata.errors?.map((x) => [x.code, x.status])
+        ).toEqual([
+            [NotFoundError.code, 410],
+            [ConflictError.code, 409]
+        ]);
     });
 
-    test('keep details of domain errors', async () => {
-        const result = await withBadRequest(echo, { route })
-            .input(() => ({ query: z.object({ value: z.string() }) }))
-            .mapInput(({ query }) => query)({});
-        expect(errorBody(result)).toMatchObject({
-            name: new RequestParsingError({
-                issues: [],
-                source: 'query',
-                received: {}
-            }).name,
-            details: { source: 'query', received: {} }
+    test('reject an error mapped twice in one list', () => {
+        expect(() =>
+            createEndpoint()(mockAdapter)(failing, {
+                route,
+                errors: [
+                    httpError(NotFoundError, 404),
+                    httpError(NotFoundError, 410)
+                ]
+            })
+                .input(() => ({}))
+                .mapInput(() => ({}))
+        ).toThrow(`Error "${NotFoundError.code}" is mapped more than once`);
+    });
+
+    describe('plain error classes', () => {
+        class PaymentError extends Error {
+            constructor(
+                readonly reason: string,
+                readonly cardNumber: string
+            ) {
+                super(reason);
+            }
+        }
+
+        class CardExpiredError extends PaymentError {}
+
+        const payment = httpError(PaymentError, 402, {
+            code: 'PAYMENT_FAILED',
+            details: {
+                schema: z.object({ reason: z.string() }),
+                map: (e) => ({ reason: e.reason })
+            }
         });
+
+        test('are matched with instanceof and use the given code', async () => {
+            const result = await call(new PaymentError('declined', '4242'), {
+                errors: [payment]
+            });
+            expect(result.statusCode).toBe(402);
+            expect(errorBody(result)).toEqual({
+                code: 'PAYMENT_FAILED',
+                details: { reason: 'declined' }
+            });
+        });
+
+        test('match subclasses', async () => {
+            const result = await call(new CardExpiredError('expired', '4242'), {
+                errors: [payment]
+            });
+            expect(errorBody(result).code).toBe('PAYMENT_FAILED');
+        });
+
+        test('need a code', () => {
+            // @ts-expect-error plain classes have no code of their own
+            expect(() => httpError(PaymentError, 402)).toThrow(
+                'Error class "PaymentError" has no code, pass it in the options'
+            );
+        });
+
+        test('are matched in order, endpoint mappings first', async () => {
+            const result = await call(
+                new CardExpiredError('expired', '4242'),
+                { errors: [httpError(Error, 400, { code: 'ANY' })] },
+                [
+                    httpError(CardExpiredError, 410, { code: 'CARD_EXPIRED' }),
+                    payment
+                ]
+            );
+            expect(result.statusCode).toBe(410);
+
+            const shared = await call(new Error('plain'), {
+                errors: [httpError(Error, 400, { code: 'ANY' })]
+            });
+            expect(errorBody(shared)).toEqual({ code: 'ANY' });
+        });
+    });
+
+    describe('httpStatus', () => {
+        class TimeoutError extends Error {}
+
+        const unavailable = httpStatus(503, {
+            code: 'UNAVAILABLE',
+            message: 'Try again later',
+            match: [
+                TimeoutError,
+                NotFoundError,
+                (e) => e.message.startsWith('db:')
+            ]
+        });
+
+        test('gives every matching error one status and code', async () => {
+            for (const error of [
+                new TimeoutError(),
+                notFound,
+                new Error('db: connection lost')
+            ]) {
+                const result = await call(error, { errors: [unavailable] });
+                expect(result.statusCode).toBe(503);
+                expect(errorBody(result)).toEqual({
+                    code: 'UNAVAILABLE',
+                    message: 'Try again later'
+                });
+            }
+        });
+
+        test('ignores errors that match nothing', async () => {
+            const result = await call(new Error('other'), {
+                errors: [unavailable]
+            });
+            expect(result.statusCode).toBe(500);
+        });
+
+        test('builds message and details from the error', async () => {
+            const result = await call(new TimeoutError('took 5s'), {
+                errors: [
+                    httpStatus(504, {
+                        code: 'TIMEOUT',
+                        match: [TimeoutError],
+                        message: (e) => e.message,
+                        details: {
+                            schema: z.object({ name: z.string() }),
+                            map: (e) => ({ name: e.name })
+                        }
+                    })
+                ]
+            });
+            expect(errorBody(result)).toEqual({
+                code: 'TIMEOUT',
+                message: 'took 5s',
+                details: { name: 'Error' }
+            });
+        });
+
+        test('works next to httpError, the first match wins', async () => {
+            const result = await call(notFound, {
+                errors: [httpError(NotFoundError, 404), unavailable]
+            });
+            expect(result.statusCode).toBe(404);
+            expect(errorBody(result)).toEqual({ code: NotFoundError.code });
+        });
+    });
+
+    test('let domain errors override their code', async () => {
+        const result = await call(notFound, {
+            errors: [httpError(NotFoundError, 404, { code: 'NOT_FOUND' })]
+        });
+        expect(errorBody(result)).toEqual({ code: 'NOT_FOUND' });
     });
 });
 
@@ -486,14 +769,7 @@ describe('responses', () => {
 
             const result = await invalidEndpoint({});
             expect(result.statusCode).toBe(500);
-            expect(errorBody(result)).toMatchObject({
-                name: new ResponseParsingError({
-                    issues: [],
-                    source: target,
-                    received: undefined
-                }).name,
-                details: { source: target, received: { value: 'v' } }
-            });
+            expect(errorBody(result)).toEqual({ code: INTERNAL_ERROR_CODE });
         });
     }
 });
@@ -542,7 +818,7 @@ describe('endpoint description', () => {
         expect(described.metadata).toEqual({
             route: { method: 'post', path: ['echo'] },
             summary: 'Echo',
-            errorStatuses: {}
+            errors: []
         });
     });
 
@@ -608,12 +884,14 @@ describe('schemas without JSON Schema support', () => {
 
     const greetGET = withBadRequest(greet, {
         route: { method: 'get', path: ['greet', ':name'] },
-        errorStatuses: {
-            422: {
-                checks: [],
-                openApiTypes: { details: stringRecord('field') }
-            }
-        }
+        errors: [
+            httpError(NotFoundError, 422, {
+                details: {
+                    schema: stringRecord('field'),
+                    map: (e) => ({ field: e.details.id })
+                }
+            })
+        ]
     })
         .input(() => ({ headers: stringRecord('x-lang') }))
         .mapInput(({ params, headers }) => ({

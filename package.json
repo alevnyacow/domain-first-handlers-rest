@@ -63,7 +63,7 @@
         "@domain-first/handlers": "^5.0.2"
     },
     "dependencies": {
-        "@domain-first/errors": "^4.0.4",
+        "@domain-first/errors": "^4.2.4",
         "@standard-schema/spec": "^1.1.0",
         "openapi-types": "^12.1.3"
     }

@@ -159,32 +159,69 @@ The contract contains every declared part: `query`, `params` (from the route), `
 Configure once, reuse everywhere:
 
 ```ts
+import { errorNamespace } from "@domain-first/errors";
 import {
+    httpError,
+    httpStatus,
     InputMappingError,
     RequestParsingError,
 } from "@domain-first/handlers-rest";
 
 const appEndpoint = createEndpoint({
-    errorStatuses: {
-        400: {
-            checks: [
-                (e) => e instanceof RequestParsingError,
-                (e) => e instanceof InputMappingError,
-            ],
+    errors: [
+        // many errors → one status and code
+        httpStatus(400, {
+            code: "INVALID_REQUEST",
             description: "Invalid request",
-        },
-    },
+            match: [RequestParsingError, InputMappingError],
+        }),
+    ],
     context: async (request) => ({ requestedAt: Date.now() }), // available as `context` in .mapInput()
     hooks: [/* Hook API from @domain-first/handlers */],
 })(mockAdapter);
+
+const ProjectNotFoundError = errorNamespace("PROJECTS").define<{
+    projectId: string;
+    ownerEmail: string;
+}>("NOT_FOUND");
+
+const getProject = appEndpoint(findProject, {
+    route: { method: "get", path: ["projects", ":projectId"] },
+    errors: [
+        httpError(ProjectNotFoundError, 404, {
+            description: "Project not found",
+            message: (e) => `Project ${e.details.projectId} not found`,
+            details: {
+                schema: z.object({ projectId: z.string() }),
+                map: (e) => ({ projectId: e.details.projectId }), // ownerEmail stays on the server
+            },
+        }),
+        // any other error class: matched with instanceof, needs a code
+        httpError(StorageUnavailableError, 503, { code: "STORAGE_UNAVAILABLE" }),
+    ],
+})
+    .input(() => ({}))
+    .mapInput(({ params }) => ({ id: params.projectId }));
 ```
 
-**Error statuses**
+**Error responses**
 
-- An error gets the status of a matching `errorStatuses` entry; unmatched errors become `500`.
-- `errorStatuses` can be set per endpoint too; endpoint entries override shared ones.
-- The error body is `{ name, message, details? }`. Customize it with `toFullModel: (error) => ({ name, message, details })`.
-- Describe the body in OpenAPI with `openApiTypes: { name, details }` — any Standard Schema.
+Two helpers fill the `errors` list:
+
+- `httpError(ErrorClass, status, options?)` maps one error class to a status. Any class extending `Error` works: its errors and errors of its subclasses are matched with `instanceof`, and `code` is required in options.
+- Classes of [`@domain-first/errors`](https://www.npmjs.com/package/@domain-first/errors) need no boilerplate: their own `code` is used (pass `code` to override it) and errors are matched with `ErrorClass.is()`.
+- `httpStatus(status, { code, match, ... })` maps many errors to one status and one `code`. `match` lists error classes (matched like in `httpError`) and checks `(error) => boolean`; an error matches when any of them does. Use it when clients don't need to tell these errors apart, otherwise map them with `httpError` one by one.
+
+Both take the same response options:
+
+- The body is `{ code }`. `message` and `details` are sent only when the mapping sets them, so nothing leaks by accident:
+    - `message` is a string or a function of the error (typed in `httpError`, `Error` in `httpStatus`);
+    - `details` is a `map` from the error, which picks what is sent, and a `schema` (any Standard Schema), which validates it and describes it in OpenAPI.
+- If `message` or `details` can't be built (a mapper throws or `details` fail the schema), the response keeps its status without that part, and hooks get an `ErrorResponseMappingError` in `onError`.
+- Errors without a mapping become `500` with `{ code: INTERNAL_ERROR_CODE }` only.
+- `errors` can be set per endpoint too; endpoint mappings override shared ones with the same `code`. Mapping one `code` twice in one list throws.
+- The first matching mapping wins, endpoint mappings are tried before shared ones: put subclasses before their base classes and `httpError` before an `httpStatus` that matches the same errors.
+- In OpenAPI, errors sharing a status are described as `oneOf` alternatives told apart by `code`.
 
 **What can fail**
 
@@ -195,7 +232,7 @@ const appEndpoint = createEndpoint({
 | `InputMappingError`    | `.mapInput()` result doesn't match the handler's input schema (e.g. `Number("abc")` from a path parameter); `details` has `issues` and `received`                   |
 | your domain errors     | thrown by the handler                                                                                                                                               |
 
-All of them are turned into error responses through the adapter instead of being thrown.
+All of them are turned into error responses through the adapter instead of being thrown. Their `details` (including `received` request data) are sent only through a `details` mapping.
 
 **Context** receives the parsed request (`query`, `params`, `body`, `formData`, `headers`, `cookies`): parts with schemas after validation, `params` with route parameters only, `query`, `headers`, `cookies` without schemas as the adapter returned them, `body` and `formData` without schemas as `{}`. Its result is passed to `.mapInput()` as `context`. Without a `context` factory, there is no `context` field.
 
@@ -215,7 +252,7 @@ generateOpenAPI([sumPOST, sumGET, getUser], {
 });
 ```
 
-- Covers query, path, header and cookie parameters, JSON request bodies, success responses and every `errorStatuses` entry.
+- Covers query, path, header and cookie parameters, JSON request bodies, success responses and every `errors` mapping.
 - Add `summary`, `description`, `tags`, `successResponseDescription` to endpoint metadata, or override anything with `openApiMetadata`. Tags default to the first path segment.
 - Endpoints sharing a path are merged under it.
 
@@ -303,6 +340,13 @@ await getUser({
     cookies: { session: "abc" },
 });
 ```
+
+## Upgrading from 8.x
+
+- **`errors` replaces `errorStatuses`** in `createEndpoint()` and endpoint metadata. An entry `{ [status]: { checks, toFullModel, openApiTypes } }` becomes `httpStatus(status, { code, match: checks })`, or `httpError(ErrorClass, status)` per error class. `toFullModel` and `openApiTypes` become `message` and `details: { schema, map }`.
+- **Error bodies** are `{ code, message?, details? }` instead of `{ name, message, details? }`. `message` and `details` are sent only when the mapping sets them.
+- **Unmapped errors** respond `500` with `{ code: INTERNAL_ERROR_CODE }` instead of the error's name, message and details.
+- **Removed types:** `ErrorStatuses` (use `ErrorMapping`).
 
 ## Upgrading from 7.x
 

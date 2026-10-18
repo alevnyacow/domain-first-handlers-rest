@@ -1,6 +1,8 @@
 import type { Handler, Hook } from '@domain-first/handlers';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import {
+    ErrorResponseMappingError,
+    INTERNAL_ERROR_CODE,
     InputMappingError,
     RequestParsingError,
     ResponseParsingError
@@ -9,7 +11,8 @@ import { pathParamNames, validatePathParams } from './path-params';
 import type {
     Adapter,
     CookiesConfiguration,
-    ErrorStatuses,
+    ErrorMapping,
+    ErrorResponseBody,
     Metadata,
     RawRequestModel,
     RequestSchemas,
@@ -23,7 +26,7 @@ export type EndpointConfig<
     RESTRequest = unknown,
     RESTResponse = unknown
 > = Partial<{
-    errorStatuses: ErrorStatuses;
+    errors: ErrorMapping[];
     context: (rawRequestData: RawRequestModel) => Promise<Context>;
     hooks: Array<Hook<RESTRequest, RESTResponse>>;
 }>;
@@ -190,32 +193,113 @@ const parseResponse = async (schemas: ResponseSchemas, output: any) => {
 };
 
 /**
- * Later matching statuses override earlier ones,
- * so endpoint statuses win over shared ones.
+ * Endpoint mappings override shared ones with the same code.
  */
-const resolveError = (
-    error: Error,
-    statusesList: Array<ErrorStatuses | undefined>
-) => {
-    let statusCode = 500;
-    let errorResponse: { name: string; message?: string; details?: object } = {
-        name: error.name,
-        message: error.message,
-        details: 'details' in error ? (error.details as object) : undefined
-    };
+const mergeErrorMappings = (
+    shared: ErrorMapping[] = [],
+    own: ErrorMapping[] = []
+): ErrorMapping[] => {
+    for (const list of [shared, own]) {
+        const codes = new Set<string>();
 
-    for (const statuses of statusesList) {
-        for (const [code, status] of Object.entries(statuses ?? {})) {
-            if (status.checks.some((check) => check(error))) {
-                statusCode = Number(code);
-                if (status.toFullModel) {
-                    errorResponse = status.toFullModel(error);
-                }
+        for (const { code } of list) {
+            if (codes.has(code)) {
+                throw new Error(`Error "${code}" is mapped more than once`);
             }
+
+            codes.add(code);
         }
     }
 
-    return { statusCode, error: errorResponse };
+    const ownCodes = new Set(own.map((x) => x.code));
+
+    // the first matching mapping wins, endpoint ones are tried first
+    return [...own, ...shared.filter((x) => !ownCodes.has(x.code))];
+};
+
+/**
+ * Hooks are notified only, their failures don't change the response.
+ */
+const notifyHooks = async (hooks: Array<Hook<any, any>>, error: Error) => {
+    try {
+        for (const hook of hooks) {
+            await hook.onError?.(error);
+        }
+    } catch {}
+};
+
+/**
+ * Unmatched errors expose nothing.
+ */
+const resolveError = async (
+    error: Error,
+    mappings: ErrorMapping[],
+    hooks: Array<Hook<any, any>>
+) => {
+    const mapping = mappings.find((x) => x.matches(error));
+
+    if (!mapping) {
+        return { statusCode: 500, error: { code: INTERNAL_ERROR_CODE } };
+    }
+
+    return {
+        statusCode: mapping.status,
+        error: await mappedBody(error, mapping, hooks)
+    };
+};
+
+/**
+ * The body has only what the mapping exposes:
+ * parts that fail to build are not sent.
+ */
+const mappedBody = async (
+    error: Error,
+    mapping: ErrorMapping,
+    hooks: Array<Hook<any, any>>
+) => {
+    const body: ErrorResponseBody = { code: mapping.code };
+    const { message, details } = mapping;
+    const failure = (
+        part: 'message' | 'details',
+        issues: Readonly<StandardSchemaV1.Issue[]>,
+        received: unknown,
+        cause?: unknown
+    ) =>
+        notifyHooks(
+            hooks,
+            new ErrorResponseMappingError(
+                { code: mapping.code, part, issues, received },
+                cause === undefined ? undefined : { cause }
+            )
+        );
+
+    if (message !== undefined) {
+        try {
+            body.message =
+                typeof message === 'string' ? message : message(error);
+        } catch (cause) {
+            await failure('message', [], undefined, cause);
+        }
+    }
+
+    if (details) {
+        let received: unknown;
+
+        try {
+            received = details.map(error);
+            const result = await details.schema['~standard'].validate(received);
+
+            if (result.issues) {
+                await failure('details', result.issues, received);
+            } else {
+                body.details = result.value;
+            }
+        } catch (cause) {
+            await failure('details', [], received, cause);
+        }
+    }
+
+    return body;
 };
 
 export const buildEndpoint = <
@@ -232,6 +316,7 @@ export const buildEndpoint = <
     definition: EndpointDefinition
 ) => {
     const readers = requestReaders(adapter, metadata);
+    const errors = mergeErrorMappings(config.errors, metadata.errors);
 
     const transformed = handler.withTransformedContract<
         RESTRequest,
@@ -269,10 +354,11 @@ export const buildEndpoint = <
                     return await adapter.output(
                         {
                             success: false,
-                            ...resolveError(response.error, [
-                                config.errorStatuses,
-                                metadata.errorStatuses
-                            ])
+                            ...(await resolveError(
+                                response.error,
+                                errors,
+                                config.hooks ?? []
+                            ))
                         },
                         ...input
                     );
@@ -301,12 +387,6 @@ export const buildEndpoint = <
             requestSchemas: definition.request,
             responseSchemas: definition.response
         },
-        metadata: {
-            ...metadata,
-            errorStatuses: {
-                ...(config.errorStatuses ?? {}),
-                ...metadata.errorStatuses
-            }
-        }
+        metadata: { ...metadata, errors }
     });
 };

@@ -1,11 +1,13 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { errorNamespace } from '@domain-first/errors';
 import { defineHandler } from '@domain-first/handlers';
 import { afterAll, describe, expect, rstest, test } from '@rstest/core';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import z from 'zod';
 import { createEndpoint } from '../create-endpoint';
+import { httpError, httpStatus } from '../http-error';
 import { mockAdapter } from '../mock-adapter';
 import type { Metadata, RawAPISchemas } from '../types';
 import { generateOpenAPI } from './generate-open-api';
@@ -20,6 +22,11 @@ const validationOnly = (): StandardSchemaV1 => ({
         validate: (value) => ({ value })
     }
 });
+
+const UserErrors = errorNamespace('users');
+const OrgNotFoundError = UserErrors.define<{ org: string }>('org-not-found');
+const UserNotFoundError = UserErrors.define('user-not-found');
+const ConflictError = UserErrors.define<{ field: string }>('conflict');
 
 const route = (path: string[]) => ({
     metadata: { route: { method: 'get', path } } as Metadata,
@@ -109,16 +116,22 @@ describe('generateOpenAPI operations', () => {
         description: 'Creates a user in an organization',
         successStatusCode: 201,
         successResponseDescription: 'Created',
-        errorStatuses: {
-            404: { checks: [], description: 'Not found' },
-            409: {
-                checks: [],
-                openApiTypes: {
-                    name: z.literal('Conflict'),
-                    details: z.object({ field: z.string() })
+        errors: [
+            httpError(OrgNotFoundError, 404, {
+                description: 'Organization not found'
+            }),
+            httpError(UserNotFoundError, 404, {
+                description: 'User not found',
+                message: 'User not found'
+            }),
+            httpError(ConflictError, 409, {
+                message: (e) => `${e.details.field} is taken`,
+                details: {
+                    schema: z.object({ field: z.string() }),
+                    map: (e) => ({ field: e.details.field })
                 }
-            }
-        }
+            })
+        ]
     })
         .input(() => ({
             query: z.object({ dryRun: z.string().optional() }),
@@ -204,32 +217,110 @@ describe('generateOpenAPI operations', () => {
         });
     });
 
-    test('describes error responses', () => {
+    test('describes errors of one status as alternatives', () => {
         expect(operation?.responses['404']).toEqual({
-            description: 'Not found',
+            description: 'Organization not found; User not found',
+            content: {
+                'application/json': {
+                    schema: {
+                        oneOf: [
+                            {
+                                type: 'object',
+                                required: ['code'],
+                                properties: {
+                                    code: {
+                                        type: 'string',
+                                        enum: [OrgNotFoundError.code]
+                                    }
+                                }
+                            },
+                            {
+                                type: 'object',
+                                required: ['code', 'message'],
+                                properties: {
+                                    code: {
+                                        type: 'string',
+                                        enum: [UserNotFoundError.code]
+                                    },
+                                    message: {
+                                        type: 'string',
+                                        example: 'User not found'
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                }
+            }
+        });
+    });
+
+    test('describes groups and plain error classes by their code', () => {
+        class TimeoutError extends Error {}
+        const grouped = endpoint(createUser, {
+            route: { method: 'post', path: ['groups'] },
+            errors: [
+                httpStatus(503, {
+                    code: 'UNAVAILABLE',
+                    description: 'Service unavailable',
+                    match: [TimeoutError, (e) => e.message === 'down']
+                }),
+                httpError(TimeoutError, 504, { code: 'TIMEOUT' })
+            ]
+        })
+            .input((schema) => ({ body: schema }))
+            .mapInput(({ body }) => body);
+
+        const responses = generateOpenAPI([grouped], { document }).paths[
+            '/groups'
+        ]?.post?.responses;
+
+        expect(responses?.['503']).toEqual({
+            description: 'Service unavailable',
             content: {
                 'application/json': {
                     schema: {
                         type: 'object',
-                        required: ['name'],
+                        required: ['code'],
                         properties: {
-                            name: { type: 'string' },
-                            message: { type: 'string', nullable: true }
+                            code: { type: 'string', enum: ['UNAVAILABLE'] }
                         }
                     }
                 }
             }
         });
-        expect(operation?.responses['409']).toMatchObject({
-            description: 'Error response',
+        expect(responses?.['504']).toMatchObject({
             content: {
                 'application/json': {
                     schema: {
                         properties: {
-                            name: { type: 'string', enum: ['Conflict'] },
+                            code: { type: 'string', enum: ['TIMEOUT'] }
+                        }
+                    }
+                }
+            }
+        });
+    });
+
+    test('describes a single error with its message and details', () => {
+        expect(operation?.responses['409']).toEqual({
+            description: 'Error response',
+            content: {
+                'application/json': {
+                    schema: {
+                        type: 'object',
+                        required: ['code', 'message'],
+                        properties: {
+                            code: {
+                                type: 'string',
+                                enum: [ConflictError.code]
+                            },
+                            message: { type: 'string' },
                             details: {
                                 type: 'object',
-                                properties: { field: { type: 'string' } }
+                                properties: { field: { type: 'string' } },
+                                required: ['field'],
+                                additionalProperties: false
                             }
                         }
                     }
@@ -334,22 +425,19 @@ describe('generateOpenAPI operations', () => {
     test('converts every schema with standardSchemaToJSONSchema', () => {
         const custom = route(['users']);
         const body = validationOnly();
-        const errorName = validationOnly();
         const errorDetails = validationOnly();
         custom._api_schemas.responseSchemas.body = body;
         custom.metadata = {
             route: { method: 'get', path: ['users'] },
-            errorStatuses: {
-                400: {
-                    checks: [],
-                    openApiTypes: { name: errorName, details: errorDetails }
-                }
-            }
+            errors: [
+                httpError(ConflictError, 400, {
+                    details: { schema: errorDetails, map: (e) => e.details }
+                })
+            ]
         };
 
         const conversions = new Map<StandardSchemaV1, z.ZodType>([
             [body, z.object({ converted: z.boolean() })],
-            [errorName, z.literal('BadRequest')],
             [errorDetails, z.object({ field: z.string() })]
         ]);
         const standardSchemaToJSONSchema = rstest.fn(
@@ -364,7 +452,6 @@ describe('generateOpenAPI operations', () => {
 
         expect(standardSchemaToJSONSchema.mock.calls.map(([x]) => x)).toEqual([
             body,
-            errorName,
             errorDetails
         ]);
         expect(responses?.['200']).toMatchObject({
@@ -379,7 +466,10 @@ describe('generateOpenAPI operations', () => {
                 'application/json': {
                     schema: {
                         properties: {
-                            name: { type: 'string', enum: ['BadRequest'] },
+                            code: {
+                                type: 'string',
+                                enum: [ConflictError.code]
+                            },
                             details: {
                                 type: 'object',
                                 properties: { field: { type: 'string' } }

@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { OpenAPIV3 } from 'openapi-types';
 import { pathParamNames } from '../path-params';
-import type { Metadata, RawAPISchemas } from '../types';
+import type { ErrorMapping, Metadata, RawAPISchemas } from '../types';
 import { describeParameters } from './describe-parameters';
 import { jsonSchemasFromRoute } from './json-schemas-from-route';
 import { createSchemaComponents } from './schema-components';
@@ -79,55 +79,84 @@ export const generateOpenAPI = (
               }
             : {};
 
-        const errorResponses = route.metadata.errorStatuses
-            ? Object.fromEntries(
-                  Object.entries(route.metadata.errorStatuses).map((x) => {
-                      return [
-                          x[0],
-                          {
-                              description: x[1].description ?? 'Error response',
-                              content: {
-                                  'application/json': {
-                                      schema: {
-                                          type: 'object' as const,
-                                          required: ['name'],
-                                          properties: {
-                                              name: x[1].openApiTypes?.name
-                                                  ? schemaOf(
-                                                        toJSONSchema(
-                                                            x[1].openApiTypes
-                                                                .name
-                                                        ),
-                                                        'output'
-                                                    )
-                                                  : {
-                                                        type: 'string' as const
-                                                    },
-                                              message: {
-                                                  type: 'string' as const,
-                                                  nullable: true
-                                              },
-                                              ...(x[1].openApiTypes?.details
-                                                  ? {
-                                                        details: schemaOf(
-                                                            toJSONSchema(
-                                                                x[1]
-                                                                    .openApiTypes
-                                                                    .details
-                                                            ),
-                                                            'output'
-                                                        )
-                                                    }
-                                                  : {})
-                                          }
-                                      }
-                                  }
-                              }
-                          }
-                      ];
-                  })
-              )
-            : {};
+        const errorVariants = new Map<
+            string,
+            { descriptions: string[]; schemas: OpenAPIV3.SchemaObject[] }
+        >();
+        const addErrorVariant = (
+            status: string | number,
+            description: string | undefined,
+            schema: OpenAPIV3.SchemaObject
+        ) => {
+            const variant = errorVariants.get(String(status)) ?? {
+                descriptions: [],
+                schemas: []
+            };
+
+            if (
+                description !== undefined &&
+                !variant.descriptions.includes(description)
+            ) {
+                variant.descriptions.push(description);
+            }
+
+            variant.schemas.push(schema);
+            errorVariants.set(String(status), variant);
+        };
+
+        const errorSchema = (
+            mapping: ErrorMapping
+        ): OpenAPIV3.SchemaObject => ({
+            type: 'object',
+            required:
+                mapping.message === undefined ? ['code'] : ['code', 'message'],
+            properties: {
+                code: { type: 'string', enum: [mapping.code] },
+                ...(mapping.message !== undefined && {
+                    message: {
+                        type: 'string',
+                        ...(typeof mapping.message === 'string' && {
+                            example: mapping.message
+                        })
+                    }
+                }),
+                // not required: details that fail validation are not sent
+                ...(mapping.details && {
+                    details: schemaOf(
+                        toJSONSchema(mapping.details.schema),
+                        'output'
+                    )
+                })
+            }
+        });
+
+        for (const mapping of route.metadata.errors ?? []) {
+            addErrorVariant(
+                mapping.status,
+                mapping.description,
+                errorSchema(mapping)
+            );
+        }
+
+        const errorResponses = Object.fromEntries(
+            [...errorVariants].map(([status, { descriptions, schemas }]) => [
+                status,
+                {
+                    description:
+                        descriptions.length > 0
+                            ? descriptions.join('; ')
+                            : 'Error response',
+                    content: {
+                        'application/json': {
+                            schema:
+                                schemas.length === 1
+                                    ? schemas[0]!
+                                    : { oneOf: schemas }
+                        }
+                    }
+                }
+            ])
+        );
 
         const operation: OpenAPIV3.OperationObject = {
             ...(route.metadata.summary && {

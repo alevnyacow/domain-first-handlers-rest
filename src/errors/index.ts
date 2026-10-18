@@ -18,6 +18,22 @@ export const InputMappingError = Errors.define<{
     received: unknown;
 }>('input-mapping');
 
+/**
+ * `code` of the response to errors without an `httpError()` mapping.
+ */
+export const INTERNAL_ERROR_CODE = '@domain-first/handlers-rest.internal';
+
+/**
+ * `message` or `details` of an error response could not be built,
+ * the response is sent without them. Passed to hooks only.
+ */
+export const ErrorResponseMappingError = Errors.define<{
+    code: string;
+    part: 'message' | 'details';
+    issues: Readonly<StandardSchemaV1.Issue[]>;
+    received: unknown;
+}>('error-response-mapping');
+
 export const ResponseParsingError = Errors.define<{
     issues: Readonly<StandardSchemaV1.Issue[]>;
     source: 'headers' | 'cookies' | 'body';
