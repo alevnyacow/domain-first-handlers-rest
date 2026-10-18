@@ -1,3 +1,15 @@
+# [9.0.0](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v8.1.2...v9.0.0) (2026-10-18)
+
+
+### Features
+
+* http errors ([48dfad1](https://github.com/alevnyacow/domain-first-handlers-rest/commit/48dfad19c5da02f6bb79545074de201195aa9a21))
+
+
+### BREAKING CHANGES
+
+* removed `errorStatuses`, use `errors` instead
+
 ## [8.1.2](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v8.1.1...v8.1.2) (2026-10-14)
 
 
