@@ -1,3 +1,10 @@
+# [9.1.0](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v9.0.0...v9.1.0) (2026-10-19)
+
+
+### Features
+
+* error schemas, default errors, draft-07 support ([aa1844f](https://github.com/alevnyacow/domain-first-handlers-rest/commit/aa1844f27e4efc2b1aa5c1d37bb66bc5ed7f8acd))
+
 # [9.0.0](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v8.1.2...v9.0.0) (2026-10-18)
 
 
