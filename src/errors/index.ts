@@ -24,6 +24,12 @@ export const InputMappingError = Errors.define<{
 export const INTERNAL_ERROR_CODE = '@domain-first/handlers-rest.internal';
 
 /**
+ * `code` of `invalidRequest()` responses by default.
+ */
+export const INVALID_REQUEST_CODE =
+    '@domain-first/handlers-rest.invalid-request';
+
+/**
  * `message` or `details` of an error response could not be built,
  * the response is sent without them. Passed to hooks only.
  */

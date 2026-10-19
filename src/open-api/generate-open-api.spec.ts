@@ -255,6 +255,59 @@ describe('generateOpenAPI operations', () => {
         });
     });
 
+    test('puts named error bodies with their details to components', () => {
+        const Field = z.object({ name: z.string() }).meta({ id: 'Field' });
+        const named = route(['users']);
+        named.metadata = {
+            route: { method: 'get', path: ['users'] },
+            errors: [
+                httpError(ConflictError, 409, {
+                    schemaName: 'Conflict',
+                    details: {
+                        schema: z.object({ field: Field }),
+                        map: (e) => ({ field: { name: e.details.field } })
+                    }
+                })
+            ]
+        };
+        const result = generateOpenAPI([named], { document });
+
+        expect(result.paths['/users']?.get?.responses?.['409']).toMatchObject({
+            content: {
+                'application/json': {
+                    schema: { $ref: '#/components/schemas/Conflict' }
+                }
+            }
+        });
+        expect(result.components?.schemas).toMatchObject({
+            Conflict: {
+                properties: {
+                    code: { enum: [ConflictError.code] },
+                    details: {
+                        properties: {
+                            field: { $ref: '#/components/schemas/Field' }
+                        }
+                    }
+                }
+            },
+            Field: { properties: { name: { type: 'string' } } }
+        });
+    });
+
+    test('rejects one error schema name for different bodies', () => {
+        const named = route(['users']);
+        named.metadata = {
+            route: { method: 'get', path: ['users'] },
+            errors: [
+                httpError(OrgNotFoundError, 404, { schemaName: 'NotFound' }),
+                httpError(UserNotFoundError, 404, { schemaName: 'NotFound' })
+            ]
+        };
+        expect(() => generateOpenAPI([named], { document })).toThrow(
+            'Schema "NotFound" is described differently'
+        );
+    });
+
     test('describes groups and plain error classes by their code', () => {
         class TimeoutError extends Error {}
         const grouped = endpoint(createUser, {
@@ -855,6 +908,200 @@ describe('generateOpenAPI schema components', () => {
         ).toThrow(
             `Schema "My Id" can't be an OpenAPI component name, use letters, digits, ".", "-" and "_"`
         );
+    });
+
+    test('names schemas with an id keyword, the root too', () => {
+        const money = {
+            id: 'Money',
+            type: 'object',
+            properties: { amount: { type: 'number' } }
+        };
+        const result = generateOpenAPI(
+            [
+                withBody('orders', {
+                    responseBody: jsonSchema({
+                        id: 'Order',
+                        type: 'object',
+                        properties: { total: money, paid: money }
+                    })
+                })
+            ],
+            { document }
+        );
+
+        expect(responseSchema(result, '/orders')).toEqual({
+            $ref: '#/components/schemas/Order'
+        });
+        expect(result.components?.schemas).toEqual({
+            Order: {
+                type: 'object',
+                properties: {
+                    total: { $ref: '#/components/schemas/Money' },
+                    paid: { $ref: '#/components/schemas/Money' }
+                }
+            },
+            Money: {
+                type: 'object',
+                properties: { amount: { type: 'number' } }
+            }
+        });
+    });
+
+    test('ignores an id inherited from the named schema', () => {
+        const result = generateOpenAPI(
+            [
+                withBody('search', {
+                    responseBody: jsonSchema({
+                        type: 'object',
+                        properties: {
+                            sort: {
+                                id: 'Sort',
+                                anyOf: [
+                                    { id: 'Sort', const: 'asc' },
+                                    { id: 'Sort', const: 'desc' }
+                                ]
+                            }
+                        }
+                    })
+                })
+            ],
+            { document }
+        );
+
+        expect(result.components?.schemas).toEqual({
+            Sort: { anyOf: [{ const: 'asc' }, { const: 'desc' }] }
+        });
+    });
+
+    test('keeps parameter roots with an id inline', () => {
+        const result = generateOpenAPI(
+            [
+                withBody('search', {
+                    query: jsonSchema({
+                        id: 'Search',
+                        type: 'object',
+                        properties: {
+                            sort: { id: 'Sort', type: 'string' }
+                        }
+                    })
+                })
+            ],
+            { document }
+        );
+
+        expect(result.paths['/search']?.post?.parameters).toEqual([
+            {
+                name: 'sort',
+                in: 'query',
+                required: false,
+                schema: { $ref: '#/components/schemas/Sort' }
+            }
+        ]);
+        expect(Object.keys(result.components?.schemas ?? {})).toEqual(['Sort']);
+    });
+
+    test('treats an id property as a name, not a keyword', () => {
+        const result = generateOpenAPI(
+            [
+                withBody('users', {
+                    responseBody: jsonSchema({
+                        type: 'object',
+                        properties: { id: { type: 'string' } }
+                    })
+                })
+            ],
+            { document }
+        );
+
+        expect(responseSchema(result, '/users')).toEqual({
+            type: 'object',
+            properties: { id: { type: 'string' } }
+        });
+        expect(result.components?.schemas ?? {}).toEqual({});
+    });
+
+    test('rejects one id for different schemas', () => {
+        expect(() =>
+            generateOpenAPI(
+                [
+                    withBody('orders', {
+                        requestBody: jsonSchema({
+                            type: 'object',
+                            properties: {
+                                a: { id: 'Money', type: 'number' },
+                                b: { id: 'Money', type: 'string' }
+                            }
+                        })
+                    })
+                ],
+                { document }
+            )
+        ).toThrow('Schema "Money" is described differently');
+    });
+});
+
+describe('generateOpenAPI JSON Schema targets', () => {
+    const document = { info: { title: 'Test', version: '1.0.0' } };
+
+    /**
+     * Schema of a library without the `openapi-3.0` target (e.g. ArkType).
+     */
+    const draftOnly = (schema: Record<string, unknown>) =>
+        ({
+            '~standard': {
+                version: 1,
+                vendor: 'draft-only',
+                validate: (value: unknown) => ({ value }),
+                jsonSchema: {
+                    input: ({ target }: { target: string }) => {
+                        if (target !== 'draft-07') {
+                            throw new Error(`target ${target} is unsupported`);
+                        }
+                        return {
+                            $schema: 'http://json-schema.org/draft-07/schema#',
+                            ...schema
+                        };
+                    }
+                }
+            }
+        }) as unknown as StandardSchemaV1;
+
+    const withRequestBody = (body: StandardSchemaV1) => {
+        const result = route(['items']);
+        result.metadata = { route: { method: 'post', path: ['items'] } };
+        result._api_schemas.requestSchemas.body = body;
+        return result;
+    };
+
+    test('fall back to draft-07 without $schema', () => {
+        const result = generateOpenAPI(
+            [withRequestBody(draftOnly({ type: 'string' }))],
+            { document }
+        );
+
+        expect(result.paths['/items']?.post?.requestBody).toEqual({
+            required: true,
+            content: { 'application/json': { schema: { type: 'string' } } }
+        });
+    });
+
+    test('rethrow the openapi-3.0 error when draft-07 fails too', () => {
+        const unsupported = {
+            '~standard': {
+                version: 1,
+                vendor: 'unsupported',
+                validate: (value: unknown) => ({ value }),
+                jsonSchema: {
+                    input: ({ target }: { target: string }) => {
+                        throw new Error(`no ${target}`);
+                    }
+                }
+            }
+        } as unknown as StandardSchemaV1;
+
+        expect(() =>
+            generateOpenAPI([withRequestBody(unsupported)], { document })
+        ).toThrow('no openapi-3.0');
     });
 });
 

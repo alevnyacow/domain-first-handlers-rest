@@ -69,7 +69,8 @@ type Reference = {
 };
 
 /**
- * Moves named subschemas of converted schemas (`$defs`, `definitions`)
+ * Moves named subschemas of converted schemas (`$defs`, `definitions`,
+ * schemas with an `id` keyword, e.g. ArkType's `.configure({ id })`)
  * to `components.schemas` and points their references there.
  *
  * A name used by requests and responses becomes one component when both
@@ -80,10 +81,35 @@ export const createSchemaComponents = () => {
     const definitions = new Map<string, Partial<Record<Direction, Schema>>>();
     const references: Reference[] = [];
 
-    const rewrite = (
-        node: unknown,
-        context: { direction: Direction; names: Set<string>; owner?: string }
-    ): unknown => {
+    const define = (name: string, schema: Schema, direction: Direction) => {
+        if (!componentName.test(name)) {
+            throw new Error(
+                `Schema "${name}" can't be an OpenAPI component name, use letters, digits, ".", "-" and "_"`
+            );
+        }
+
+        const variants = definitions.get(name) ?? {};
+        const previous = variants[direction];
+
+        if (previous && stableStringify(previous) !== stableStringify(schema)) {
+            throw new Error(
+                `Schema "${name}" is described differently in several places, give each variant its own name`
+            );
+        }
+
+        variants[direction] ??= schema;
+        definitions.set(name, variants);
+    };
+
+    type Context = {
+        direction: Direction;
+        names: Set<string>;
+        owner?: string;
+        /** The node is the root of a schema that has to stay inline. */
+        inlineRoot?: boolean;
+    };
+
+    const rewrite = (node: unknown, context: Context): unknown => {
         if (Array.isArray(node)) {
             return node.map((item) => rewrite(item, context));
         }
@@ -92,6 +118,33 @@ export const createSchemaComponents = () => {
             return node;
         }
 
+        if (typeof node.id === 'string') {
+            const { id, ...schema } = node;
+
+            // ArkType's `.configure({ id })` gives union branches the id too
+            if (context.inlineRoot || id === context.owner) {
+                return rewrite(schema, { ...context, inlineRoot: false });
+            }
+
+            define(
+                id,
+                rewrite(schema, { ...context, owner: id }) as Schema,
+                context.direction
+            );
+
+            // pointed to the component in finalize, like `$defs` references
+            const reference: Schema = { $ref: `#/$defs/${id}` };
+            references.push({
+                holder: reference,
+                name: id,
+                direction: context.direction,
+                owner: context.owner
+            });
+
+            return reference;
+        }
+
+        const childContext = { ...context, inlineRoot: false };
         const result: Schema = {};
 
         for (const [key, value] of Object.entries(node)) {
@@ -115,20 +168,25 @@ export const createSchemaComponents = () => {
                 result[key] = Object.fromEntries(
                     Object.entries(value).map(([name, schema]) => [
                         name,
-                        rewrite(schema, context)
+                        rewrite(schema, childContext)
                     ])
                 );
             } else {
-                result[key] = rewrite(value, context);
+                result[key] = rewrite(value, childContext);
             }
         }
 
         return result;
     };
 
+    /**
+     * `inlineRoot` keeps the root in place even with an `id`,
+     * e.g. for parameters, which are described property by property.
+     */
     const hoist = (
         schema: OpenAPIV3.SchemaObject,
-        direction: Direction
+        direction: Direction,
+        options: { inlineRoot?: boolean } = {}
     ): OpenAPIV3.SchemaObject => {
         const entries = Object.entries(schema);
         const ownDefinitions: Schema = Object.assign(
@@ -142,38 +200,28 @@ export const createSchemaComponents = () => {
         const names = new Set(Object.keys(ownDefinitions));
 
         for (const [name, definition] of Object.entries(ownDefinitions)) {
-            if (!componentName.test(name)) {
-                throw new Error(
-                    `Schema "${name}" can't be an OpenAPI component name, use letters, digits, ".", "-" and "_"`
-                );
-            }
-
-            const hoisted = rewrite(definition, {
-                direction,
-                names,
-                owner: name
-            }) as Schema;
-            const variants = definitions.get(name) ?? {};
-            const previous = variants[direction];
-
-            if (
-                previous &&
-                stableStringify(previous) !== stableStringify(hoisted)
-            ) {
-                throw new Error(
-                    `Schema "${name}" is described differently in several places, give each variant its own name`
-                );
-            }
-
-            variants[direction] ??= hoisted;
-            definitions.set(name, variants);
+            // the definition is the component, its own `id` names nothing
+            const component = isObject(definition)
+                ? Object.fromEntries(
+                      Object.entries(definition).filter(([key]) => key !== 'id')
+                  )
+                : definition;
+            define(
+                name,
+                rewrite(component, {
+                    direction,
+                    names,
+                    owner: name
+                }) as Schema,
+                direction
+            );
         }
 
         return rewrite(
             Object.fromEntries(
                 entries.filter(([key]) => !definitionKeys.has(key))
             ),
-            { direction, names }
+            { direction, names, inlineRoot: options.inlineRoot }
         ) as OpenAPIV3.SchemaObject;
     };
 

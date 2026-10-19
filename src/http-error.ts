@@ -10,6 +10,11 @@ type ResponseOptions<
      */
     description?: string;
     /**
+     * Puts the response body to OpenAPI `components.schemas` under this
+     * name, so endpoints refer to it instead of repeating it.
+     */
+    schemaName?: string;
+    /**
      * Without it the response has no `message`.
      */
     message?: string | ((error: InstanceType<Class>) => string);
@@ -78,11 +83,12 @@ const isErrorClass = (
  */
 const responseParts = (
     options: ResponseOptions<any, StandardSchemaV1>
-): Pick<ErrorMapping, 'description' | 'message' | 'details'> => {
-    const { description, message, details } = options;
+): Pick<ErrorMapping, 'description' | 'schemaName' | 'message' | 'details'> => {
+    const { description, schemaName, message, details } = options;
 
     return {
         ...(description !== undefined && { description }),
+        ...(schemaName !== undefined && { schemaName }),
         ...(message !== undefined && { message }),
         ...(details && { details })
     };

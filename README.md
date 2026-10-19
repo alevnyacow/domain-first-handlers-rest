@@ -160,21 +160,12 @@ Configure once, reuse everywhere:
 
 ```ts
 import { errorNamespace } from "@domain-first/errors";
-import {
-    httpError,
-    httpStatus,
-    InputMappingError,
-    RequestParsingError,
-} from "@domain-first/handlers-rest";
+import { httpError, invalidRequest } from "@domain-first/handlers-rest";
 
 const appEndpoint = createEndpoint({
     errors: [
-        // many errors → one status and code
-        httpStatus(400, {
-            code: "INVALID_REQUEST",
-            description: "Invalid request",
-            match: [RequestParsingError, InputMappingError],
-        }),
+        // RequestParsingError and InputMappingError → 400 with issues
+        invalidRequest(),
     ],
     context: async (request) => ({ requestedAt: Date.now() }), // available as `context` in .mapInput()
     hooks: [/* Hook API from @domain-first/handlers */],
@@ -212,7 +203,9 @@ Two helpers fill the `errors` list:
 - Classes of [`@domain-first/errors`](https://www.npmjs.com/package/@domain-first/errors) need no boilerplate: their own `code` is used (pass `code` to override it) and errors are matched with `ErrorClass.is()`.
 - `httpStatus(status, { code, match, ... })` maps many errors to one status and one `code`. `match` lists error classes (matched like in `httpError`) and checks `(error) => boolean`; an error matches when any of them does. Use it when clients don't need to tell these errors apart, otherwise map them with `httpError` one by one.
 
-Both take the same response options:
+- `invalidRequest(options?)` is a ready-made `httpStatus` for `RequestParsingError` and `InputMappingError`: `400` with `code` `INVALID_REQUEST_CODE` and `details` `{ source?, issues: [{ message, path? }] }` (`source` is absent for `InputMappingError`, `received` is never sent). Its `details` schema is built in, so it works with any validation library and needs no `standardSchemaToJSONSchema`. In OpenAPI its body is the `InvalidRequestError` component. `status`, `code`, `description`, `schemaName`, `message` and `details` can be overridden, `details: false` sends none.
+
+All of them take the same response options:
 
 - The body is `{ code }`. `message` and `details` are sent only when the mapping sets them, so nothing leaks by accident:
     - `message` is a string or a function of the error (typed in `httpError`, `Error` in `httpStatus`);
@@ -222,6 +215,7 @@ Both take the same response options:
 - `errors` can be set per endpoint too; endpoint mappings override shared ones with the same `code`. Mapping one `code` twice in one list throws.
 - The first matching mapping wins, endpoint mappings are tried before shared ones: put subclasses before their base classes and `httpError` before an `httpStatus` that matches the same errors.
 - In OpenAPI, errors sharing a status are described as `oneOf` alternatives told apart by `code`.
+- `schemaName` puts the response body to `components.schemas` under that name, endpoints then refer to it with `$ref` instead of repeating it. Generation throws an error when one name describes different bodies.
 
 **What can fail**
 
@@ -232,7 +226,7 @@ Both take the same response options:
 | `InputMappingError`    | `.mapInput()` result doesn't match the handler's input schema (e.g. `Number("abc")` from a path parameter); `details` has `issues` and `received`                   |
 | your domain errors     | thrown by the handler                                                                                                                                               |
 
-All of them are turned into error responses through the adapter instead of being thrown. Their `details` (including `received` request data) are sent only through a `details` mapping.
+All of them are turned into error responses through the adapter instead of being thrown. Their `details` (including `received` request data) are sent only through a `details` mapping; `invalidRequest()` sends `issues` without `received`.
 
 **Context** receives the parsed request (`query`, `params`, `body`, `formData`, `headers`, `cookies`): parts with schemas after validation, `params` with route parameters only, `query`, `headers`, `cookies` without schemas as the adapter returned them, `body` and `formData` without schemas as `{}`. Its result is passed to `.mapInput()` as `context`. Without a `context` factory, there is no `context` field.
 
@@ -256,21 +250,24 @@ generateOpenAPI([sumPOST, sumGET, getUser], {
 - Add `summary`, `description`, `tags`, `successResponseDescription` to endpoint metadata, or override anything with `openApiMetadata`. Tags default to the first path segment.
 - Endpoints sharing a path are merged under it.
 
-**Shared schemas.** Named subschemas go to `components.schemas` and are referenced from every place they're used. Name them the way your library does, e.g. Zod's `.meta({ id })`:
+**Shared schemas.** Named subschemas go to `components.schemas` and are referenced from every place they're used. Name them the way your library does, e.g. Zod's `.meta({ id })` or ArkType's `.configure({ id })`:
 
 ```ts
 const Money = z
     .object({ amount: z.number(), currency: z.string() })
     .meta({ id: "Money" });
 // → components.schemas.Money, used as { $ref: "#/components/schemas/Money" }
+
+const Money = type({ amount: "number", currency: "string" }).configure({ id: "Money" });
+// the same with ArkType
 ```
 
-- Works for any library: whatever a schema's JSON Schema keeps in `$defs` or `definitions` becomes a component.
+- Works for any library: whatever a schema's JSON Schema keeps in `$defs` or `definitions`, and every schema with an `id` keyword, becomes a component.
 - A name used by requests and responses stays one component when both describe the same thing, otherwise it becomes `MoneyInput` and `MoneyOutput` (Zod, for one, closes objects with `additionalProperties: false` only in responses).
 - Components from `document.components.schemas` are kept. Generation throws an error when one name describes different schemas, when it's already taken in the document, or when it has characters OpenAPI doesn't allow (only letters, digits, `.`, `-`, `_`).
-- The schema of a request or response part itself stays inline, even when it's named; only the schemas inside it are moved.
+- The schema of a request or response part itself becomes a component when its JSON Schema has an `id` (ArkType does this; Zod ignores `id` of the part itself, so it stays inline). Query, header and cookie schemas always stay inline: they're described as separate parameters.
 
-**Schemas from any library.** Every schema goes through `standardSchemaToJSONSchema` before it reaches the document. It must return a [Standard JSON Schema](https://standardschema.dev) — an object with `~standard.jsonSchema.input()` and `.output()`. By default the schema is used as is, which is enough for libraries implementing Standard JSON Schema (Zod 4). For others (e.g. Valibot), pass a converter — otherwise generation throws an error naming the library. A plain JSON Schema converter just needs wrapping:
+**Schemas from any library.** Every schema goes through `standardSchemaToJSONSchema` before it reaches the document, except built-in ones (`invalidRequest()` details). It must return a [Standard JSON Schema](https://standardschema.dev) — an object with `~standard.jsonSchema.input()` and `.output()`. By default the schema is used as is, which is enough for libraries implementing Standard JSON Schema (Zod 4, ArkType). Libraries without the `openapi-3.0` target (ArkType) are asked for draft-07, which is rewritten to OpenAPI 3.0: `const` becomes `enum`, the `null` type becomes `nullable`, numeric `exclusiveMinimum`/`exclusiveMaximum` become boolean, tuples become arrays of any of their items. For libraries without Standard JSON Schema (e.g. Valibot), pass a converter — otherwise generation throws an error naming the library. A plain JSON Schema converter just needs wrapping:
 
 ```ts
 generateOpenAPI(endpoints, {

@@ -32,6 +32,11 @@ export type ErrorMapping = {
     code: string;
     status: number;
     description?: string;
+    /**
+     * Name of the response body in OpenAPI `components.schemas`,
+     * without it the body is described inline.
+     */
+    schemaName?: string;
     matches: (error: Error) => boolean;
     message?: string | ((error: Error) => string);
     details?: {

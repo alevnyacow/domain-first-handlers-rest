@@ -12,6 +12,8 @@ import {
     toOpenAPISchema
 } from './to-openapi-schema';
 
+const OWN_SCHEMA_VENDOR = '@domain-first/handlers-rest';
+
 export type GenerateOpenAPIOptions = {
     document: Omit<OpenAPIV3.Document, 'paths' | 'openapi'>;
     /**
@@ -21,7 +23,8 @@ export type GenerateOpenAPIOptions = {
     apiRoutePrefix?: string[];
     /**
      * Converts schemas of libraries without Standard JSON Schema support.
-     * Every schema goes through it, by default it is used as is.
+     * Every schema goes through it, except the library's own ones
+     * (e.g. of `invalidRequest()`). By default it is used as is.
      */
     standardSchemaToJSONSchema?: StandardSchemaToJSONSchema;
     outputFile?: {
@@ -48,13 +51,34 @@ export const generateOpenAPI = (
     options: GenerateOpenAPIOptions
 ): OpenAPIV3.Document => {
     const paths: OpenAPIV3.PathsObject = {};
-    const toJSONSchema =
+    const convert =
         options.standardSchemaToJSONSchema ?? defaultStandardSchemaToJSONSchema;
+    // own schemas are written by hand with JSON Schema, a converter
+    // for the app's validation library may not understand them
+    const toJSONSchema: StandardSchemaToJSONSchema = (schema) =>
+        schema['~standard'].vendor === OWN_SCHEMA_VENDOR
+            ? defaultStandardSchemaToJSONSchema(schema)
+            : convert(schema);
     const components = createSchemaComponents();
     const schemaOf = (
         schema: Parameters<typeof toOpenAPISchema>[0],
-        direction: 'input' | 'output'
-    ) => components.hoist(toOpenAPISchema(schema, direction), direction);
+        direction: 'input' | 'output',
+        options?: { inlineRoot?: boolean }
+    ) =>
+        components.hoist(
+            toOpenAPISchema(schema, direction),
+            direction,
+            options
+        );
+    // parameters are described property by property, their root stays
+    const parametersOf = (
+        schema: Parameters<typeof toOpenAPISchema>[0],
+        target: Parameters<typeof describeParameters>[1]
+    ) =>
+        describeParameters(
+            schemaOf(schema, 'input', { inlineRoot: true }),
+            target
+        );
 
     for (const route of routes) {
         const jsonSchemas = jsonSchemasFromRoute(route, {
@@ -104,31 +128,47 @@ export const generateOpenAPI = (
             errorVariants.set(String(status), variant);
         };
 
-        const errorSchema = (
-            mapping: ErrorMapping
-        ): OpenAPIV3.SchemaObject => ({
-            type: 'object',
-            required:
-                mapping.message === undefined ? ['code'] : ['code', 'message'],
-            properties: {
-                code: { type: 'string', enum: [mapping.code] },
-                ...(mapping.message !== undefined && {
-                    message: {
-                        type: 'string',
-                        ...(typeof mapping.message === 'string' && {
-                            example: mapping.message
-                        })
-                    }
-                }),
-                // not required: details that fail validation are not sent
-                ...(mapping.details && {
-                    details: schemaOf(
-                        toJSONSchema(mapping.details.schema),
-                        'output'
-                    )
-                })
-            }
-        });
+        const errorSchema = (mapping: ErrorMapping): OpenAPIV3.SchemaObject => {
+            const details =
+                mapping.details &&
+                toOpenAPISchema(toJSONSchema(mapping.details.schema), 'output');
+            const {
+                $defs,
+                definitions,
+                ...detailsSchema
+            }: Record<string, any> = details ?? {};
+            const body: OpenAPIV3.SchemaObject = {
+                type: 'object',
+                required:
+                    mapping.message === undefined
+                        ? ['code']
+                        : ['code', 'message'],
+                properties: {
+                    code: { type: 'string', enum: [mapping.code] },
+                    ...(mapping.message !== undefined && {
+                        message: {
+                            type: 'string',
+                            ...(typeof mapping.message === 'string' && {
+                                example: mapping.message
+                            })
+                        }
+                    }),
+                    // not required: details that fail validation are not sent
+                    ...(details && { details: detailsSchema })
+                }
+            };
+            const ownDefinitions = { ...definitions, ...$defs };
+            const schema: Record<string, unknown> = mapping.schemaName
+                ? {
+                      $ref: `#/$defs/${mapping.schemaName}`,
+                      $defs: { ...ownDefinitions, [mapping.schemaName]: body }
+                  }
+                : { ...body, $defs: ownDefinitions };
+
+            // details definitions travel with the body, so one hoist
+            // turns both into components
+            return components.hoist(schema as OpenAPIV3.SchemaObject, 'output');
+        };
 
         for (const mapping of route.metadata.errors ?? []) {
             addErrorVariant(
@@ -174,8 +214,10 @@ export const generateOpenAPI = (
         };
 
         if (jsonSchemas.requestQuery) {
-            const schema = schemaOf(jsonSchemas.requestQuery, 'input');
-            operation.parameters = describeParameters(schema, 'query');
+            operation.parameters = parametersOf(
+                jsonSchemas.requestQuery,
+                'query'
+            );
         }
 
         const routeParamNames = pathParamNames(route.metadata.route.path);
@@ -192,16 +234,14 @@ export const generateOpenAPI = (
         }
 
         if (jsonSchemas.requestCookies) {
-            const schema = schemaOf(jsonSchemas.requestCookies, 'input');
             operation.parameters = (operation.parameters ?? []).concat(
-                describeParameters(schema, 'cookie')
+                parametersOf(jsonSchemas.requestCookies, 'cookie')
             );
         }
 
         if (jsonSchemas.requestHeaders) {
-            const schema = schemaOf(jsonSchemas.requestHeaders, 'input');
             operation.parameters = (operation.parameters ?? []).concat(
-                describeParameters(schema, 'header')
+                parametersOf(jsonSchemas.requestHeaders, 'header')
             );
         }
 

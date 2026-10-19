@@ -3,6 +3,7 @@ import type {
     StandardSchemaV1
 } from '@standard-schema/spec';
 import type { OpenAPIV3 } from 'openapi-types';
+import { draft07ToOpenAPI } from './draft-07-to-openapi';
 
 export type StandardSchemaToJSONSchema = (
     schema: StandardSchemaV1
@@ -16,6 +17,10 @@ export const defaultStandardSchemaToJSONSchema: StandardSchemaToJSONSchema = (
     schema
 ) => schema as unknown as StandardJSONSchemaV1;
 
+/**
+ * Libraries without the `openapi-3.0` target (e.g. ArkType) are asked
+ * for draft-07, which is then rewritten to OpenAPI 3.0.
+ */
 export const toOpenAPISchema = (
     schema: StandardJSONSchemaV1,
     direction: 'input' | 'output'
@@ -28,5 +33,15 @@ export const toOpenAPISchema = (
         );
     }
 
-    return convert({ target: 'openapi-3.0' }) as OpenAPIV3.SchemaObject;
+    try {
+        return convert({ target: 'openapi-3.0' }) as OpenAPIV3.SchemaObject;
+    } catch (openAPIError) {
+        try {
+            const { $schema, ...draft07 } = convert({ target: 'draft-07' });
+            return draft07ToOpenAPI(draft07) as OpenAPIV3.SchemaObject;
+        } catch {
+            // the schema can't be converted at all, not just to OpenAPI
+            throw openAPIError;
+        }
+    }
 };
