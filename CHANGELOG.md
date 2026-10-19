@@ -1,3 +1,10 @@
+## [9.1.1](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v9.1.0...v9.1.1) (2026-10-19)
+
+
+### Bug Fixes
+
+* api.md, readme ([479e87b](https://github.com/alevnyacow/domain-first-handlers-rest/commit/479e87b7e644d59ba43cd7c4cf63b59cb3501197))
+
 # [9.1.0](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v9.0.0...v9.1.0) (2026-10-19)
 
 
