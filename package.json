@@ -1,7 +1,7 @@
 {
     "name": "@domain-first/handlers-rest",
     "description": "Expose domain operations through REST without coupling your domain to HTTP",
-    "version": "9.1.1",
+    "version": "9.1.2",
     "license": "MIT",
     "homepage": "https://domain-first-landing.vercel.app/handlers-rest/",
     "type": "module",
