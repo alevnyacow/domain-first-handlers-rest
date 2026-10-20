@@ -1,3 +1,10 @@
+# [9.2.0](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v9.1.2...v9.2.0) (2026-10-20)
+
+
+### Features
+
+* path parameters validation ([fa52a6d](https://github.com/alevnyacow/domain-first-handlers-rest/commit/fa52a6d023fa2971a9bcdde32a158c6a6bd3b842))
+
 ## [9.1.2](https://github.com/alevnyacow/domain-first-handlers-rest/compare/v9.1.1...v9.1.2) (2026-10-19)
 
 
