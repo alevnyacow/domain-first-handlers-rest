@@ -28,14 +28,21 @@ type ContextData<Context> = unknown extends Context
       ? {}
       : { context: Context };
 
+type ParamsSchemaOutput<Request> = Request extends {
+    params: infer Schema extends StandardSchemaV1;
+}
+    ? StandardSchemaV1.InferOutput<Schema>
+    : {};
+
 /**
- * Path parameters come from the route, e.g. `['users', ':id']` → `{ id: string }`.
+ * Path parameters come from the route, e.g. `['users', ':id']` → `{ id: string }`,
+ * a `params` schema narrows their types.
  */
-type PathParamsData<Path extends readonly string[]> = [
+type PathParamsData<Path extends readonly string[], Request> = [
     PathParamName<Path>
 ] extends [never]
     ? {}
-    : { params: PathParams<Path> };
+    : { params: PathParams<Path, ParamsSchemaOutput<Request>> };
 
 /**
  * Argument of `.mapInput()`.
@@ -45,7 +52,9 @@ export type RequestData<
     Path extends readonly string[],
     Context
 > = Simplify<
-    InferSchemas<Request> & PathParamsData<Path> & ContextData<Context>
+    InferSchemas<Omit<Request, 'params'>> &
+        PathParamsData<Path, Request> &
+        ContextData<Context>
 >;
 
 /**
@@ -88,8 +97,48 @@ type StringRecordSchemaIssue<
           }
     : never;
 
-type RequestSchemasIssue<Request> =
+type NonStrictStringKeys<T> = {
+    [K in keyof T]-?: T[K] extends string ? never : K;
+}[keyof T];
+
+/**
+ * A `params` schema describes route parameters only,
+ * and they are always present strings.
+ */
+type PathParamsSchemaIssue<
+    Request,
+    Path extends readonly string[]
+> = Request extends { params: infer Schema extends StandardSchemaV1 }
+    ? [
+          Exclude<
+              keyof StandardSchemaV1.InferOutput<Schema>,
+              PathParamName<Path>
+          >
+      ] extends [never]
+        ? [NonStrictStringKeys<StandardSchemaV1.InferOutput<Schema>>] extends [
+              never
+          ]
+            ? never
+            : {
+                  ERROR: 'INVALID PATH PARAMETERS SCHEMA';
+                  INVALID: NonStrictStringKeys<
+                      StandardSchemaV1.InferOutput<Schema>
+                  >;
+                  CURRENT: StandardSchemaV1.InferOutput<Schema>;
+              }
+        : {
+              ERROR: 'UNKNOWN PATH PARAMETERS';
+              UNKNOWN: Exclude<
+                  keyof StandardSchemaV1.InferOutput<Schema>,
+                  PathParamName<Path>
+              >;
+              ROUTE: PathParamName<Path>;
+          }
+    : never;
+
+type RequestSchemasIssue<Request, Path extends readonly string[]> =
     | UnknownSourcesIssue<Request>
+    | PathParamsSchemaIssue<Request, Path>
     | StringRecordSchemaIssue<
           Request,
           'query',
@@ -201,7 +250,7 @@ const endpointGenerator =
                 return Object.assign(endpoint, { output });
             };
 
-            type Issue = RequestSchemasIssue<Request>;
+            type Issue = RequestSchemasIssue<Request, Path>;
 
             return { mapInput } as [Issue] extends [never]
                 ? { mapInput: typeof mapInput }

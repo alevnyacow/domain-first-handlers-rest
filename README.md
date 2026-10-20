@@ -88,6 +88,16 @@ await getUser({ pathParams: { userId: "42" } });
 
 Values are strings: convert them in `.mapInput()`, and the handler's input schema validates the result. Write paths inline or with `as const`, a `string[]` gives no `params`.
 
+A `params` schema checks them before `.mapInput()`, so bad values are a [`RequestParsingError`](./API.md#requestparsingerror) like any invalid request part. It can describe only some parameters, the rest stay `string`:
+
+```ts
+const getUserTab = endpoint(findUserTab, { route: { method: "get", path: ["users", ":email", ":tab"] } })
+    .input(() => ({ params: z.object({ email: z.email(), tab: z.enum(["posts", "likes"]) }) }))
+    .mapInput(({ params }) => params); // params: { email: string; tab: "posts" | "likes" }
+```
+
+Like query parameters, the schema must output strings: use `z.string().regex(/^\d+$/)` for a number and `Number()` in `.mapInput()`, not `z.coerce.number()`. OpenAPI describes each parameter with its schema (`format: email`, `pattern`, `enum`).
+
 ### How to catch mistakes at compile time
 
 Query, headers and cookies arrive as strings. A schema that expects something else doesn't compile, and the IDE says why:

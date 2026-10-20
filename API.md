@@ -186,11 +186,11 @@ input<Request extends RequestSchemas>(
 
 | Name             | Type                              | Description                                                                                   |
 | ---------------- | --------------------------------- | --------------------------------------------------------------------------------------------- |
-| `requestSchemas` | `(inputSchema) => RequestSchemas` | Called once, immediately, with the handler's input schema. Returns schemas for `query`, `body`, `formData`, `headers`, `cookies`. |
+| `requestSchemas` | `(inputSchema) => RequestSchemas` | Called once, immediately, with the handler's input schema. Returns schemas for `query`, `params`, `body`, `formData`, `headers`, `cookies`. |
 
 **Behavior**
 
-- `params` are not declared here: they come from the route.
+- `params` come from the route even without a schema. A `params` schema validates them and narrows their types; it can describe only some parameters, the rest stay `string`.
 - Parts without a schema are still passed to `.mapInput()` when they are always read (`query`, `headers`, `cookies`), see [Request processing](#request-processing).
 - If a schema can't match HTTP, the return type is an error description instead of `{ mapInput }`. See [Compile-time checks](#compile-time-checks).
 
@@ -661,7 +661,7 @@ Every endpoint becomes an operation at `<prefix>/<path>` under its method. Endpo
 
 | Endpoint part                  | OpenAPI                                                                                           |
 | ------------------------------ | ------------------------------------------------------------------------------------------------- |
-| `:name` segment                | `{name}` in the path and a required `string` path parameter                                       |
+| `:name` segment                | `{name}` in the path and a required path parameter: its `params` schema property, or `string`     |
 | `query`, `headers`, `cookies`  | One parameter per property (`in: query`, `header`, `cookie`), required when the property is. Record schemas with required keys give one parameter per key. |
 | `body`                         | Required `application/json` request body                                                          |
 | Response `body`                | `<successStatusCode>` response with `application/json` content                                    |
@@ -793,7 +793,7 @@ type CookiesConfiguration = Record<string, { httpOnly: boolean; maxAge: number }
 | ------------- | ------------------------------------------------------------------------- |
 | `queryParams`, `headers`, `cookies` | On every request                                    |
 | `body`, `formData` | Only when the endpoint declares a schema for them                    |
-| `pathParams`  | Only when the route has parameters. Required for such routes, see [`.mapInput()`](#mapinput) |
+| `pathParams`  | Only when the route has parameters or the endpoint declares a `params` schema. Required then, see [`.mapInput()`](#mapinput) |
 
 - `output` gets validated response parts on success, and the status and [error body](#error-types) on failure. `error` is typed `unknown` in the declaration.
 - If `output` throws while writing a success response, the error is resolved like any other and `output` is called again with the error response. If it throws while writing an error response, the endpoint call rejects.
@@ -843,7 +843,7 @@ JSON.parse(res.body); // on error: { code: "..." }
 
 ```ts
 type RequestSource = "query" | "params" | "body" | "formData" | "headers" | "cookies";
-type RequestSchemaSource = Exclude<RequestSource, "params">;
+type RequestSchemaSource = RequestSource;
 type ResponseTarget = "body" | "headers" | "cookies";
 
 type RequestSchemas = { [Source in RequestSchemaSource]?: StandardSchemaV1 };
@@ -855,7 +855,7 @@ type ResponseSchemas = { [Target in ResponseTarget]?: StandardSchemaV1 };
 ```ts
 type RequestData<Request, Path, Context> = {
     [K in keyof Request]: StandardSchemaV1.InferOutput<Request[K]>;
-} & ({ params: PathParams<Path> } | {}) & ({ context: Context } | {});
+} & ({ params: PathParams<Path, InferOutput<Request["params"]>> } | {}) & ({ context: Context } | {});
 
 type ResponseData<Response> = {
     [K in keyof Response]: StandardSchemaV1.InferOutput<Response[K]>;
@@ -879,10 +879,12 @@ type RawRequestModel = {
 
 ```ts
 type PathParamName<Path extends readonly string[]>; // ["users", ":userId", "tabs/:tab"] → "userId" | "tab"
-type PathParams<Path extends readonly string[]> = { [Name in PathParamName<Path>]: string };
+type PathParams<Path extends readonly string[], Output = {}> = {
+    [Name in PathParamName<Path>]: Name extends keyof Output ? Output[Name] : string;
+};
 ```
 
-Names are read from the path type. A path typed as `string[]` gives `never` and no `params`, so write paths inline or with `as const`.
+`Output` is the output of a `params` schema: parameters it describes take its types. Names are read from the path type. A path typed as `string[]` gives `never` and no `params`, so write paths inline or with `as const`.
 
 ### Contracts
 
@@ -894,7 +896,7 @@ type EndpointContract<T extends { _api_schemas: object }> = {
 };
 ```
 
-Each `Infer*` type gives `{ <part>: InferOutput<Schema> }` when the endpoint declares that part and `{}` otherwise. `InferRequestParams` gives `{ params: PathParams<Path> }` when the route has parameters.
+Each `Infer*` type gives `{ <part>: InferOutput<Schema> }` when the endpoint declares that part and `{}` otherwise. `InferRequestParams` gives `{ params: PathParams<Path, Output> }` when the route has parameters, `Output` being the `params` schema output (`{}` without one).
 
 ```ts
 type UserContract = EndpointContract<typeof getUser>;
@@ -944,7 +946,9 @@ When request schemas can't work over HTTP, `.input()` returns an object describi
 | `INVALID QUERY PARAMETERS SCHEMA` | A `query` schema output has fields other than `string` or `string \| undefined`          | `INVALID`: the keys, `CURRENT`: the output |
 | `INVALID HEADERS SCHEMA`          | The same for `headers`                                                                  | `INVALID`, `CURRENT`                       |
 | `INVALID COOKIES SCHEMA`          | The same for `cookies`                                                                  | `INVALID`, `CURRENT`                       |
-| `UNKNOWN REQUEST SOURCES`         | A key other than `query`, `body`, `formData`, `headers`, `cookies`, including `params`  | `UNKNOWN`: the keys                        |
+| `INVALID PATH PARAMETERS SCHEMA`  | A `params` schema output has fields other than `string` (optional ones included: route parameters are always present) | `INVALID`, `CURRENT`         |
+| `UNKNOWN PATH PARAMETERS`         | A `params` schema describes keys that aren't route parameters                            | `UNKNOWN`: the keys, `ROUTE`: route parameter names |
+| `UNKNOWN REQUEST SOURCES`         | A key other than `query`, `params`, `body`, `formData`, `headers`, `cookies`             | `UNKNOWN`: the keys                        |
 
 When an unknown key is the only one, TypeScript reports instead that the object has no properties in common with `RequestSchemas`.
 
@@ -962,7 +966,7 @@ An endpoint call goes through these steps. A failure at any step skips the rest 
     | ------------------------------- | ------------------------- | ---------------------------------------- |
     | `query`, `headers`, `cookies`   | Validated value           | As the adapter returned it               |
     | `body`, `formData`              | Validated value           | `{}`, the adapter isn't called           |
-    | `params`                        | Route parameters only, each must be a string | `{}` when the route has none |
+    | `params`                        | Route parameters, each must be a string, then the schema's value over them | Route parameters only, each must be a string; `{}` when the route has none |
 
 2. **Context.** `config.context` gets the parts from step 1.
 3. **`.mapInput()`** gets the parts, plus `context` when configured. Its result is validated with the handler's input schema: [`InputMappingError`](#inputmappingerror) on failure.

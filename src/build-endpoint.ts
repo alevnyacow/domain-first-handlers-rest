@@ -75,12 +75,14 @@ const RESPONSE_TARGETS: ResponseTarget[] = ['body', 'headers', 'cookies'];
 
 const requestReaders = <RESTRequest extends unknown[], RESTResponse>(
     adapter: Adapter<RESTRequest, RESTResponse>,
-    metadata: Metadata
+    metadata: Metadata,
+    paramsSchema: StandardSchemaV1 | undefined
 ): Record<RequestSource, RequestReader<RESTRequest>> => {
     const paramNames = pathParamNames(metadata.route.path);
+    const readsParams = paramNames.length > 0 || !!paramsSchema;
     const { pathParams } = adapter.input;
 
-    if (paramNames.length > 0 && !pathParams) {
+    if (readsParams && !pathParams) {
         throw new Error(
             `Route "${metadata.route.path.join('/')}" uses path parameters, but the adapter does not implement "input.pathParams"`
         );
@@ -95,10 +97,10 @@ const requestReaders = <RESTRequest extends unknown[], RESTResponse>(
             // presence is checked above whenever params are read
             read: (...input) => pathParams!(...input),
             alwaysRead: false,
-            validate:
-                paramNames.length > 0
-                    ? (received) => validatePathParams(paramNames, received)
-                    : undefined
+            validate: readsParams
+                ? (received) =>
+                      validatePathParams(paramNames, received, paramsSchema)
+                : undefined
         },
         body: {
             read: (...input) => adapter.input.body(...input),
@@ -128,6 +130,7 @@ const parseRequest = async <RESTRequest extends unknown[]>(
 
     for (const source of REQUEST_SOURCES) {
         const reader = readers[source];
+        // the params reader validates with its schema itself
         const schema = source === 'params' ? undefined : schemas[source];
         const validate = schema
             ? (received: object) => schema['~standard'].validate(received)
@@ -315,7 +318,11 @@ export const buildEndpoint = <
     metadata: Metadata,
     definition: EndpointDefinition
 ) => {
-    const readers = requestReaders(adapter, metadata);
+    const readers = requestReaders(
+        adapter,
+        metadata,
+        definition.request.params
+    );
     const errors = mergeErrorMappings(config.errors, metadata.errors);
 
     const transformed = handler.withTransformedContract<

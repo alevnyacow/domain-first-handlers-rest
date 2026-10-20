@@ -223,12 +223,21 @@ export const generateOpenAPI = (
         const routeParamNames = pathParamNames(route.metadata.route.path);
 
         if (routeParamNames.length > 0) {
+            const described = new Map(
+                (jsonSchemas.requestParams
+                    ? parametersOf(jsonSchemas.requestParams, 'path')
+                    : []
+                ).map((parameter) => [parameter.name, parameter.schema])
+            );
+
+            // path parameters are always required, the ones
+            // a schema doesn't describe are plain strings
             operation.parameters = (operation.parameters ?? []).concat(
                 routeParamNames.map((name) => ({
                     name,
                     in: 'path',
                     required: true,
-                    schema: { type: 'string' }
+                    schema: described.get(name) ?? { type: 'string' }
                 }))
             );
         }

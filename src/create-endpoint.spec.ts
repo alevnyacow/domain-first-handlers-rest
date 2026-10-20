@@ -164,13 +164,6 @@ describe('path params', async () => {
                 return { id: 1, tab: params.tab };
             });
 
-        // params are not described with schemas
-        const withSchema = mockEndpoint(getUser, { route }).input(() => ({
-            body: z.object({}),
-            params: z.object({ userId: z.string(), tab: z.string() })
-        }));
-        const _withSchema: 'params' = withSchema.UNKNOWN;
-
         // non-literal paths can't be typed
         const widePath: string[] = ['users', ':userId', 'tabs/:tab'];
         mockEndpoint(getUser, { route: { method: 'get', path: widePath } })
@@ -180,6 +173,59 @@ describe('path params', async () => {
                 data.params;
                 return { id: 1, tab: 'posts' };
             });
+
+        expect(true).toBe(true);
+    });
+
+    test('narrows params with a schema', async () => {
+        const narrowed = mockEndpoint(getUser, { route })
+            .input(() => ({
+                params: z.object({ tab: z.enum(['posts', 'likes']) })
+            }))
+            .mapInput(({ params }) => {
+                type _Params = Check<
+                    typeof params,
+                    { userId: string; tab: 'posts' | 'likes' }
+                >;
+                return { id: Number(params.userId), tab: params.tab };
+            });
+
+        type _Contract = Check<
+            EndpointContract<typeof narrowed>['request']['params'],
+            { userId: string; tab: 'posts' | 'likes' }
+        >;
+
+        expect(
+            (await narrowed({ pathParams: { userId: '1', tab: 'posts' } })).body
+        ).toEqual({ id: 1, tab: 'posts' });
+        expect(
+            (await narrowed({ pathParams: { userId: '1', tab: 'other' } }))
+                .success
+        ).toBe(false);
+    });
+
+    test('rejects params schemas that do not fit the route', () => {
+        const unknown = mockEndpoint(getUser, { route }).input(() => ({
+            params: z.object({ userId: z.string(), extra: z.string() })
+        }));
+        const _unknown: 'extra' = unknown.UNKNOWN;
+
+        const noRouteParams = mockEndpoint(getUser, {
+            route: { method: 'get', path: ['users'] }
+        }).input(() => ({ params: z.object({ id: z.string() }) }));
+        const _noRouteParams: 'id' = noRouteParams.UNKNOWN;
+
+        // values are strings, convert them in .mapInput()
+        const coerced = mockEndpoint(getUser, { route }).input(() => ({
+            params: z.object({ userId: z.coerce.number() })
+        }));
+        const _coerced: 'userId' = coerced.INVALID;
+
+        // route params are always present
+        const optional = mockEndpoint(getUser, { route }).input(() => ({
+            params: z.object({ tab: z.string().optional() })
+        }));
+        const _optional: 'tab' = optional.INVALID;
 
         expect(true).toBe(true);
     });

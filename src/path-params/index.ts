@@ -16,10 +16,14 @@ export type PathParamName<Path extends readonly string[]> = SegmentParamName<
 >;
 
 /**
- * Raw path parameters of a route, e.g. `['users', ':userId']` → `{ userId: string }`.
+ * Path parameters of a route, e.g. `['users', ':userId']` → `{ userId: string }`.
+ * Parameters described by `Output` (the output of a `params` schema)
+ * take its types, the rest stay `string`.
  */
-export type PathParams<Path extends readonly string[]> = {
-    [Name in PathParamName<Path>]: string;
+export type PathParams<Path extends readonly string[], Output = {}> = {
+    [Name in PathParamName<Path>]: Name extends keyof Output
+        ? Output[Name]
+        : string;
 };
 
 export const pathParamNames = (path: readonly string[]): string[] =>
@@ -30,12 +34,13 @@ export const pathParamNames = (path: readonly string[]): string[] =>
 
 /**
  * Every route parameter must be present as a string;
- * only route parameters are kept.
+ * only route parameters are kept, then checked with the schema if any.
  */
-export const validatePathParams = (
+export const validatePathParams = async (
     names: string[],
-    received: object
-): StandardSchemaV1.Result<Record<string, string>> => {
+    received: object,
+    schema?: StandardSchemaV1
+): Promise<StandardSchemaV1.Result<Record<string, unknown>>> => {
     const values = received as Record<string, unknown>;
     const issues = names
         .filter((name) => typeof values[name] !== 'string')
@@ -48,9 +53,20 @@ export const validatePathParams = (
         return { issues };
     }
 
-    return {
-        value: Object.fromEntries(
-            names.map((name) => [name, values[name] as string])
-        )
-    };
+    const params = Object.fromEntries(
+        names.map((name) => [name, values[name] as string])
+    );
+
+    if (!schema) {
+        return { value: params };
+    }
+
+    const result = await schema['~standard'].validate(params);
+
+    if (result.issues) {
+        return result;
+    }
+
+    // a schema may describe only some parameters, the rest stay as they are
+    return { value: { ...params, ...(result.value as object) } };
 };

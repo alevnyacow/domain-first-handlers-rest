@@ -289,6 +289,41 @@ describe('request parsing', () => {
         });
     });
 
+    test('validates params with a schema', async () => {
+        const byEmail = withBadRequest(echo, {
+            route: { method: 'get', path: ['users', ':email', ':tab'] }
+        })
+            .input(() => ({ params: z.object({ email: z.email() }) }))
+            .mapInput(({ params }) => ({
+                value: `${params.email}/${params.tab}`
+            }));
+
+        const valid = await byEmail({
+            pathParams: { email: 'a@b.co', tab: 'posts', extra: 'x' }
+        });
+        expect(valid.body).toEqual({ value: 'a@b.co/posts' });
+
+        const invalid = await byEmail({
+            pathParams: { email: 'nope', tab: 'posts' }
+        });
+        expect(invalid.statusCode).toBe(400);
+        expect(errorBody(invalid).details).toMatchObject({
+            source: 'params',
+            issues: [{ path: ['email'] }]
+        });
+    });
+
+    test('checks presence before the params schema', async () => {
+        const result = await withBadRequest(echo, {
+            route: { method: 'get', path: [':value'] }
+        })
+            .input(() => ({ params: z.object({ value: z.string() }) }))
+            .mapInput(({ params }) => params)({ pathParams: {} });
+        expect(errorBody(result).details.issues).toEqual([
+            { message: 'Path parameter "value" is missing', path: ['value'] }
+        ]);
+    });
+
     test('supports async mappers', async () => {
         const result = await createEndpoint()(mockAdapter)(echo, {
             route: { method: 'get', path: [] }

@@ -94,6 +94,83 @@ describe('generateOpenAPI path params', () => {
         ]);
     });
 
+    test('describes params with their schema', () => {
+        const getUser = defineHandler({
+            inputSchema: z.object({ email: z.string() }),
+            outputSchema: z.object({}),
+            handler: async () => ({})
+        });
+        const result = generateOpenAPI(
+            [
+                createEndpoint()(mockAdapter)(getUser, {
+                    route: {
+                        method: 'get',
+                        path: ['users', ':email', ':id']
+                    }
+                })
+                    .input(() => ({
+                        params: z.object({
+                            id: z.string().regex(/^\d+$/),
+                            email: z.email()
+                        })
+                    }))
+                    .mapInput(({ params }) => ({ email: params.email }))
+            ],
+            { document }
+        );
+        const parameters = result.paths['/users/{email}/{id}']?.get
+            ?.parameters as any[];
+
+        // route order, always required
+        expect(parameters.map((x) => [x.name, x.in, x.required])).toEqual([
+            ['email', 'path', true],
+            ['id', 'path', true]
+        ]);
+        expect(parameters[0].schema).toMatchObject({
+            type: 'string',
+            format: 'email'
+        });
+        expect(parameters[1].schema).toMatchObject({
+            type: 'string',
+            pattern: '^\\d+$'
+        });
+    });
+
+    test('describes params a schema skips as strings', () => {
+        const echoId = defineHandler({
+            inputSchema: z.object({ id: z.string() }),
+            outputSchema: z.object({}),
+            handler: async () => ({})
+        });
+        const result = generateOpenAPI(
+            [
+                createEndpoint()(mockAdapter)(echoId, {
+                    route: { method: 'get', path: [':org', ':id'] }
+                })
+                    .input(() => ({
+                        params: z.object({ id: z.enum(['a', 'b']) })
+                    }))
+                    .mapInput(({ params }) => ({ id: params.id }))
+            ],
+            { document }
+        );
+
+        expect(result.paths['/{org}/{id}']?.get?.parameters).toEqual([
+            {
+                name: 'org',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+            },
+            {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string', enum: ['a', 'b'] }
+            }
+        ]);
+    });
+
     test('adds no parameters for routes without params', () => {
         const result = generateOpenAPI([route(['users'])], { document });
         expect(result.paths['/users']?.get?.parameters).toBeUndefined();

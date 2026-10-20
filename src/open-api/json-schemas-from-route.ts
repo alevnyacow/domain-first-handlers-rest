@@ -13,6 +13,7 @@ export const jsonSchemasFromRoute = (
     return {
         requestBody: convert(requestSchemas.body),
         requestQuery: convert(requestSchemas.query),
+        requestParams: convert(requestSchemas.params),
         requestHeaders: convert(requestSchemas.headers),
         requestFormData: convert(requestSchemas.formData),
         requestCookies: convert(requestSchemas.cookies),

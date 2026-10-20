@@ -2,7 +2,7 @@ import type { OpenAPIV3 } from 'openapi-types';
 
 export const describeParameters = (
     schema: any,
-    target: 'query' | 'header' | 'cookie'
+    target: 'query' | 'path' | 'header' | 'cookie'
 ): OpenAPIV3.ParameterObject[] => {
     if (schema.type !== 'object') {
         throw new Error(`${target} schema must be an object`);

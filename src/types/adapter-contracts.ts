@@ -73,10 +73,10 @@ export type RequestSource =
 export type ResponseTarget = 'body' | 'headers' | 'cookies';
 
 /**
- * Request parts described with schemas. Path parameters are not among them:
- * their names come from the route and their values are always strings.
+ * Request parts described with schemas. A `params` schema is optional:
+ * path parameter names come from the route anyway.
  */
-export type RequestSchemaSource = Exclude<RequestSource, 'params'>;
+export type RequestSchemaSource = RequestSource;
 
 export type RequestSchemas = {
     [Source in RequestSchemaSource]?: StandardSchemaV1;

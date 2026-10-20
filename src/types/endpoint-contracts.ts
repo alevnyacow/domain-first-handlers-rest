@@ -75,6 +75,7 @@ export type Metadata<Path extends readonly string[] = readonly string[]> = {
 
 export type JSONSchemas = {
     requestQuery: StandardJSONSchemaV1 | undefined;
+    requestParams: StandardJSONSchemaV1 | undefined;
     requestBody: StandardJSONSchemaV1 | undefined;
     requestCookies: StandardJSONSchemaV1 | undefined;
     requestFormData: StandardJSONSchemaV1 | undefined;
@@ -87,6 +88,7 @@ export type JSONSchemas = {
 export type RawAPISchemas = {
     requestSchemas: {
         query?: StandardSchemaV1;
+        params?: StandardSchemaV1;
         body?: StandardSchemaV1;
         cookies?: StandardSchemaV1;
         formData?: StandardSchemaV1;
@@ -112,7 +114,20 @@ export type InferRequestParams<T> = T extends {
 }
     ? [PathParamName<Path>] extends [never]
         ? {}
-        : { params: PathParams<Path> }
+        : {
+              params: PathParams<
+                  Path,
+                  T extends {
+                      _api_schemas: {
+                          requestSchemas: {
+                              params: infer Params extends StandardSchemaV1;
+                          };
+                      };
+                  }
+                      ? StandardSchemaV1.InferOutput<Params>
+                      : {}
+              >;
+          }
     : {};
 
 export type InferRequestBody<T> = T extends {
